@@ -1,6 +1,6 @@
 ; vdcbasic
 ; made from Felix 'skOi!nk' Rosenhahn's "vdc-tool 2"
-;
+; by Mac Bacon
 ;  5 Jan 2003	improved label names
 ;		removed unneeded checks of vdc "ready" flag
 ; 31 Oct 2013	beautified
@@ -19,10 +19,15 @@
 ; 30 Nov 2013	added SYN instruction
 ;  7 Dec 2013	added DISP, ATTR and CRSR instructions, also added installation message
 ; 16 Mar 2014	extended SYN: now allows writing registers
+;
+; v 2c
+; by Goodwell
+; 29 Sep 2023   extended VMC: now allows repetitions and offset-increment for target-address
+
 ; TODO		disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v10 installed"}
 
-	!to "vdcbasic.bin", cbm
+	!to "vdcbasic2c.bin", cbm
 
 	!source <6502/std.a>		; for +bit16
 	!source <6502/opcodes.a>	; for AND/ORA self-mods
@@ -34,6 +39,8 @@ linnum	= $16	; uint16 for POKE, PEEK(), etc.
 arg1	= $84	; actually colors and scale factors for graphics
 arg2	= $86
 arg3	= $88
+arg4    = $8A
+arg5    = $8B
 
 ; basic
 b_skip_comma			= $795c	; if comma: skip, otherwise: syntax error
@@ -367,7 +374,7 @@ vmo ; VRAM location |= value
 		jmp A_to_vram_XXYY
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; new instructions (the more complicated ones)
-complex_instruction_shared_entry ; read args (uint16, uint16, uint16), remember CR, activate full RAM with I/O
+complex_instruction_parse3args
 		jsr b_parse_uint16
 		sty arg1
 		sta arg1 + 1
@@ -377,12 +384,38 @@ complex_instruction_shared_entry ; read args (uint16, uint16, uint16), remember 
 		jsr b_parse_comma_uint16
 		sty arg3
 		sta arg3 + 1
+		rts
+
+complex_instruction_shared_entry ; read args (uint16, uint16, uint16), remember CR, activate full RAM with I/O
+		jsr complex_instruction_parse3args
+		jmp ++
+
+complex_instruction_block_entry
+		jsr complex_instruction_parse3args
+
+		jsr chrgot	; anything else?
+		beq +
+		
+		jsr b_skip_comma
+		jsr b_parse_uint8_to_X
+		stx arg4
+
+		jsr b_skip_comma
+		jsr b_parse_uint8_to_X
+		stx arg5
+		
+		jmp ++
+
+		; set nr of repetitions to 1
++       ldx #1
+		stx arg4
+		
 		; remember memory configuration for shared exit
-		ldx $ff00
+++		ldx $ff00
 		stx .cr
 		ldx #$3e	; full RAM with I/O
 		stx $ff00
-		rts	; > AAYY = arg3
+		rts; > AAYY = arg3
 
 complex_instruction_shared_exit ; restore memory configuration
 .cr = * + 1:	lda #MODIFIED8
@@ -407,13 +440,32 @@ vmf ; fill VRAM with value
 		jsr A_to_vdc_reg_X
 		; write first byte
 		lda arg2
+		;set target
 		ldy arg1
 		ldx arg1 + 1
 		jsr A_to_vram_XXYY
-		jmp vmf_vmc_shared_end
+		;set count
+		lda arg3
+		ldy arg3 + 1
+		jsr vdc_do_YYAA_cycles
+		
+;		dec arg4
+;		beq +
+		
+;		clc
+;		lda arg1
+;		adc arg5
+;		sta arg1
+		
+;		bcc -
+;		inc arg1+1
+;		jmp -
+		
+		jmp complex_instruction_shared_exit
 
 vmc ; copy VRAM to VRAM
-		jsr complex_instruction_shared_entry
+		jsr complex_instruction_block_entry ; > AAYY = arg3
+		
 		; set register bit for BLOCK COPY:
 		ldx #24
 		jsr vdc_reg_X_to_A
@@ -425,14 +477,28 @@ vmc ; copy VRAM to VRAM
 		ldx #32
 		jsr AY_to_vdc_regs_Xp1
 		; set target
-		ldy arg2
+-		ldy arg2
 		lda arg2 + 1
 		jsr AY_to_vdc_regs_18_19
-vmf_vmc_shared_end
+
+		; set count
 		lda arg3
 		ldy arg3 + 1
 		jsr vdc_do_YYAA_cycles
-		jmp complex_instruction_shared_exit
+		
+		dec arg4
+		beq +
+		
+		clc
+		lda arg2
+		adc arg5
+		sta arg2
+		
+		bcc -
+		inc arg2+1
+		jmp -
+		
++		jmp complex_instruction_shared_exit
 
 !zone transfer_stuff
 
