@@ -6,6 +6,9 @@ An update to it was published on March 16, 2014.
 This was improved from it's original version and published by Forum64 user Mac Bacon.
 The original version was created by Felix 'skOi!nk' Rosenhahn around the year 1993.
 
+The current version is VDC-Basic v2c.
+This extends the VMC command for two additional parameters: repetitions and target-address-increase per repetition
+
 vdcbasic.bin is compiled for address $1300.
 vdcbasicac6.bin is compiled for address $0ac6.
 
@@ -36,6 +39,11 @@ vdcbasicac6.bin is compiled for address $0ac6.
 
 	vmf VRAM_TARGET, BYTE, COUNT16		fill VDC RAM with value
 	vmc VRAM_SOURCE, VRAM_TARGET, COUNT16	copy within VDC RAM
+	vmc VRAM_SOURCE, VRAM_TARGET, COUNT16, REPETITIONS, TARGET-INCR
+		copy within VDC RAM.
+		Repetition repeats the copy command the defined number of times.
+		Source address keeps increasing continuously, target address is increased by defined amount each repetition
+		Designed for being used with soft-sprites in mind
 	rtv RAM0_SOURCE, VRAM_TARGET, COUNT16	copy from CPU RAM to VDC RAM
 	vtr VRAM_SOURCE, RAM0_TARGET, COUNT16	copy from VDC RAM to CPU RAM
 	vcc RAM0_SOURCE, VRAM_TARGET, COUNT8	copy charset patterns from CPU RAM to VDC RAM, adding eight-byte gaps
