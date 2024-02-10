@@ -20,9 +20,12 @@
 ;  7 Dec 2013	added DISP, ATTR and CRSR instructions, also added installation message
 ; 16 Mar 2014	extended SYN: now allows writing registers
 ;
+; by Goodwell:
 ; v 2c
-; by Goodwell
 ; 29 Sep 2023   extended VMC: now allows repetitions and offset-increment for target-address
+; v2d
+; 10 Feb 2024   extended VMC: added parameter for source-address increment per repetition
+
 
 ; TODO		disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v10 installed"}
@@ -39,8 +42,9 @@ linnum	= $16	; uint16 for POKE, PEEK(), etc.
 arg1	= $84	; actually colors and scale factors for graphics
 arg2	= $86
 arg3	= $88
-arg4    = $8A
-arg5    = $8B
+arg4	= $8A
+arg5	= $8B
+arg6	= $8E
 
 ; basic
 b_skip_comma			= $795c	; if comma: skip, otherwise: syntax error
@@ -388,7 +392,7 @@ complex_instruction_parse3args
 
 complex_instruction_shared_entry ; read args (uint16, uint16, uint16), remember CR, activate full RAM with I/O
 		jsr complex_instruction_parse3args
-		jmp ++
+		jmp +++
 
 complex_instruction_block_entry
 		jsr complex_instruction_parse3args
@@ -407,11 +411,25 @@ complex_instruction_block_entry
 		jmp ++
 
 		; set nr of repetitions to 1
-+       ldx #1
++		ldx #1
 		stx arg4
-		
+
+++		jsr chrgot ; do we have another parameter?
+		beq +
+    
+		; parse source address increase per repetition
+		jsr b_skip_comma
+		jsr b_parse_uint8_to_X
+		stx arg6
+   
+		jmp +++
+
+		; set source address increase to 0
++		ldx #0
+		stx arg6
+
 		; remember memory configuration for shared exit
-++		ldx $ff00
++++		ldx $ff00
 		stx .cr
 		ldx #$3e	; full RAM with I/O
 		stx $ff00
@@ -472,7 +490,7 @@ vmc ; copy VRAM to VRAM
 		ora #128
 		jsr A_to_vdc_reg_X
 		; set source
-		ldy arg1
+--		ldy arg1
 		lda arg1 + 1
 		ldx #32
 		jsr AY_to_vdc_regs_Xp1
@@ -487,18 +505,32 @@ vmc ; copy VRAM to VRAM
 		jsr vdc_do_YYAA_cycles
 		
 		dec arg4
-		beq +
-		
+		beq ++
+
+		; increase target address
 		clc
 		lda arg2
 		adc arg5
 		sta arg2
 		
-		bcc -
+		bcc +
 		inc arg2+1
-		jmp -
-		
-+		jmp complex_instruction_shared_exit
+
+		; should source address be increased?
++		lda arg6
+		cmp #0
+		beq - ; no. jump to reading target address
+
+		; increase source address
+		clc
+		adc arg1
+		sta arg1
+
+		bcc --
+		inc arg1+1
+		jmp --
+
+++		jmp complex_instruction_shared_exit
 
 !zone transfer_stuff
 
