@@ -12,6 +12,9 @@
 
 StartAddress=7169
 SafeLineLength=160
+MaxLineLength=250
+Machines=C128
+VariableRelevantLength=2
 
 Token;ByteValues;Abbreviation[;OptionalInfo]
 DATA;83;dA
