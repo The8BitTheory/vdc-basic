@@ -44,6 +44,8 @@ vdcbasicac6.bin is compiled for address $0ac6.
 		Repetition repeats the copy command the defined number of times.
 		Source address keeps increasing continuously, target address is increased by defined amount each repetition
 		Designed for being used with soft-sprites in mind
+	vmc VRAM_SOURCE, VRAM_TARGET, COUNT16, REPETITIONS, TARGET-INCR, SOURCE-INCR
+                SOURCE-INCR allows to change how the source address is incremented. Can be left out if it's supposed to be the same as COUNT16
 	rtv RAM0_SOURCE, VRAM_TARGET, COUNT16	copy from CPU RAM to VDC RAM
 	vtr VRAM_SOURCE, RAM0_TARGET, COUNT16	copy from VDC RAM to CPU RAM
 	vcc RAM0_SOURCE, VRAM_TARGET, COUNT8	copy charset patterns from CPU RAM to VDC RAM, adding eight-byte gaps
