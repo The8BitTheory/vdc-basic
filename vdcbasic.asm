@@ -49,6 +49,8 @@ arg4  = $89 ; byte - used by VMC for nr of repetitions and VMP for length of str
 arg5  = $8A ; word - by now only used by VMC for target address increase (only used as byte)
 arg6  = $8C ; word - by now only used by VMC for source address increase (only used as byte)
 
+offset = $8E
+
 ;arg_charset_address = $72; STRNG2
 ;arg_charset_width  = $8E ; byte - by now only used by VCP for storing width of chars in bytes
 ;arg_charset_height  = $8F ; byte - by now only used by VCP for storing height of chars in scanlines
@@ -60,10 +62,10 @@ b_parse_comma_uint16    = $880f ; skip comma, read unsigned 16-bit value to AAYY
 b_parse_uint16      = $8812 ; read unsigned 16-bit value to AAYY (also stored in linnum)
 b_parse_uint8_to_X    = $87f4 ; read unsigned 8-bit value to X
 b_parse_string             = $877b ; $24-$25 (36-37) contain the address of the string and y the length
-;b_parse_string             = $9236 ; $24-$25 (36-37) contain the address of the string and y the length
 c_copy_rom_font_to_vram   = $c027
 e_set_vdc_registers   = $e1dc ; a kernel routine to set several registers in a row
 
+k_fetch                 = $02a2 ; read a value from any bank
 
 ; constants
 FIRST_0xCE_TOKEN  = $0b ; BASIC 7 goes up to $ce $0a ("POINTER"), so we start at $ce $0b
@@ -739,11 +741,13 @@ reset_vdc_registers
 ;  this command basically chains VMC in a way that full strings can be printed, not just single characters
 ;  parameters: target address, location of string, length of string
 
+!zone print_to_vdc {
+
 vmp
     ;parse target address (where to render the text to)
     jsr b_parse_uint16
-    sty arg1
-    sta arg1 + 1
+    sty arg2
+    sta arg2 + 1
 
     ;parse location and length of string (location in bank 1)
     jsr b_skip_comma
@@ -759,26 +763,86 @@ vmp
     jsr $02cd ;jsrfar
 
     ;$877b writes string address to $24/$25
-    ldx $24
-    stx arg2
-    ldx $25
-    stx arg2+1
+    ; do we need to write this to arg2?
+    ;ldx $24
+    ;stx arg2
+    ;ldx $25
+    ;stx arg2+1
 
     ;$877b writes string length to A, which is stored to $6 by JSRFAR
     lda $6
     sta arg3
 
-    ;read virtual screen width from register 1 and store it in arg5
+    ;read virtual screen width from register 1 and store it in arg5 (arg4 would work, too. but for VMC it's arg5 anyways)
+    ;  we could do this in VCS as well. but that would require another persistent byte.
+    ;  it's sufficiently fast here, I guess
     ldx #1
     jsr vdc_reg_X_to_A
+    sta arg5
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,
+    ; iterate over characters - from 0 to arg3-1
+    
+    ldy #0
+    
+    lda #$24
+    sta $02aa
+
+    ; load next (first) character from arg2
+--  ;lda (arg2),y   ;not this. we need to use FETCH
+    ldx #$7f
+    jsr k_fetch
+
+    ;  convert character to screen code
+    and #%01111111
+    ora #%01000000
+
+    ;  calculate offset of character in charset
+    tax
+
+    lda arg_charset_address
+    sta arg1
+    lda arg_charset_address+1
+    sta arg1+1
+
+-   clc
+    lda arg1
+    adc arg_charset_size
+    sta arg1
+    bcc +
+    inc arg1+1
++   dex
+    bne -
+ 
+    ;  call vmc arg_charset_address+offset,arg1,arg_charset_width,arg_charset_height,arg4<virtual screen width>
+    ;n_arg2=arg1
+    ;n_arg1=offset
+    ;n_arg3=arg_charset_width
+    ;n_arg4=arg_charset_height
+    ;n_arg5=arg5
+    
+    ;arg2 has been set above already
+
+    lda arg_charset_height
     sta arg4
 
-    ; iterate over characters
-    ;  convert character to screen code
-    ;  call vmc arg3+offset,arg1,arg_charset_width,arg_charset_height,arg5<virtual screen width>
-+   
+    lda arg_charset_width
+    sta arg3
+    jsr vmc_execute
 
-    rts
+    dey
+    beq ++
+    
+    clc
+    lda arg2
+    adc arg_charset_width
+    sta arg2
+    bcc +
+    inc arg2+1
++   jmp --
+    
+
+++  rts
 
 ; VCS: VDC Charset Set - sets the parameters for the VMP command. these settings stick, so they don't need to be given for each VMP call
 vcs
@@ -797,7 +861,19 @@ vcs
     jsr b_parse_uint8_to_X
     stx arg_charset_height
 
+    ;calc size of each character in bytes (width*height)
+    lda #0
+    ldy arg_charset_height
+
+    clc
+-   adc arg_charset_width
+    sta arg_charset_size
+    dey
+    bne -
+
     rts
+}
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; vcl - "VDC Command List" instruction
 ;  this command reads bytes from memory and interprets them as parameters to the instructions
@@ -820,10 +896,10 @@ vcl
     rts
 
 
-arg_charset_address !word 0
-arg_charset_width   !byte 0
-arg_charset_height  !byte 0
-
+arg_charset_address !word 0 ; the address in VRAM where the character set is stored
+arg_charset_width   !byte 0 ; width in bytes of one character
+arg_charset_height  !byte 0 ; height in scanlines of one character
+arg_charset_size    !byte 0 ; the product of width*height. used to calculate offset of character in charset
 
 test
     lda $ff00
