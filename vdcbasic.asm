@@ -743,6 +743,8 @@ reset_vdc_registers
 
 !zone print_to_vdc {
 
+; todo: check all parameter values that are passed to VMC_execute.
+;       and compare them to the basic execution to print text
 vmp
     ;parse target address (where to render the text to)
     jsr b_parse_uint16
@@ -768,10 +770,14 @@ vmp
     ;stx arg2
     ;ldx $25
     ;stx arg2+1
+    
+    ; prepare for indirect FETCH
+    lda #$24
+    sta $02aa
 
     ;$877b writes string length to A, which is stored to $6 by JSRFAR
     lda $6
-    sta arg3
+    sta vmp_length
 
     ;read virtual screen width from register 1 and store it in arg5 (arg4 would work, too. but for VMC it's arg5 anyways)
     ;  we could do this in VCS as well. but that would require another persistent byte.
@@ -784,20 +790,42 @@ vmp
     ; iterate over characters - from 0 to arg3-1
     
     ldy #0
-    
-    lda #$24
-    sta $02aa
+    sty offset
 
     ; load next (first) character from arg2
 --  ;lda (arg2),y   ;not this. we need to use FETCH
+    ldy offset
     ldx #$7f
     jsr k_fetch
+    inc offset
 
     ;  convert character to screen code
-    and #%01111111
-    ora #%01000000
+    ; 32-63  =  ok  00100000-00111111
+    ; 64-95  = -64  01000000-01011111
+    ; 96-127 = -32  01100000-01111111
+    sta arg1    ;using arg1 only temporary here, so we can use BIT
+    
+    ; if between 64 and 95, subtract 64 (remove bit 6)
+    lda #%01000000
+    bit arg1
+    beq +
+    clc
+    lda arg1
+    ;and #%10111111
+    sbc #64
+    jmp .calculate
+
+    ; if betwen 96 and 127, subtract 32 (remove bit 5)
++   lda #%01100000
+    bit arg1
+    beq .calculate
+    clc
+    lda arg1
+    ;and #%11011111
+    sbc #32
 
     ;  calculate offset of character in charset
+.calculate
     tax
 
     lda arg_charset_address
@@ -830,9 +858,10 @@ vmp
     sta arg3
     jsr vmc_execute
 
-    dey
+    dec vmp_length
     beq ++
     
+    iny
     clc
     lda arg2
     adc arg_charset_width
@@ -900,6 +929,8 @@ arg_charset_address !word 0 ; the address in VRAM where the character set is sto
 arg_charset_width   !byte 0 ; width in bytes of one character
 arg_charset_height  !byte 0 ; height in scanlines of one character
 arg_charset_size    !byte 0 ; the product of width*height. used to calculate offset of character in charset
+
+vmp_length          !byte 0 ; length of the text to print
 
 test
     lda $ff00
