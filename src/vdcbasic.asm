@@ -33,7 +33,7 @@
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v2e installed"}
 
-  !to "vdcbasic2d.bin", cbm
+  !to "vdcbasic2e.bin", cbm
 
   !source <6502/std.a>    ; for +bit16
   !source <6502/opcodes.a>  ; for AND/ORA self-mods
@@ -74,7 +74,8 @@ MODIFIED8   = $ff ; dummy value
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; entry point: intercept four BASIC vectors
-    * = $0ac6
+;    * = $0ac6
+    * = $1300
     ; three are consecutive
     ldx #$05
 -     lda vectors, x
@@ -526,7 +527,7 @@ vmc_execute
     jsr vdc_do_YYAA_cycles
     
     dec arg4
-    beq ++
+    beq .vmc_done
 
     ; increase target address
     clc         ;0e14 --> sec (38h, dec 56)
@@ -551,7 +552,8 @@ vmc_execute
     inc arg1+1  ;0e2c --> dec (dec 198)
     jmp --
 
-++    jmp complex_instruction_shared_exit
+.vmc_done
+    jmp complex_instruction_shared_exit
 
 !zone transfer_stuff
 
@@ -748,8 +750,8 @@ reset_vdc_registers
 vmp
     ;parse target address (where to render the text to)
     jsr b_parse_uint16
-    sty arg2
-    sta arg2 + 1
+    sty vmp_target
+    sta vmp_target + 1
 
     ;parse location and length of string (location in bank 1)
     jsr b_skip_comma
@@ -765,11 +767,6 @@ vmp
     jsr $02cd ;jsrfar
 
     ;$877b writes string address to $24/$25
-    ; do we need to write this to arg2?
-    ;ldx $24
-    ;stx arg2
-    ;ldx $25
-    ;stx arg2+1
     
     ; prepare for indirect FETCH
     lda #$24
@@ -798,7 +795,8 @@ vmp
 
     ; load next (first) character of second parameter (arg2)
     ; the address of that is stored in $24/$25
---  ;lda (arg2),y   ;not this. we need to use FETCH
+    ;lda (arg2),y   ;not this. we need to use FETCH
+.vmp_next_character
     ldy offset
     ldx #$7f        ;bank 1
     jsr k_fetch
@@ -845,8 +843,14 @@ vmp
     bcc +
     inc arg1+1
 +   dex
-    bne -
- 
+    bpl -
+
+    clc
+    adc #33
+    sta arg1
+    bcc +
+    inc arg1+1
++
     ;  call vmc arg_charset_address,
     ;           vcp_arg1,
     ;           arg_charset_width,
@@ -859,7 +863,11 @@ vmp
     ;vmc_arg4=arg_charset_height
     ;vmc_arg5=arg5
     
-    ;arg2 has been set above already, and will be incremented below
+    lda vmp_target
+    sta arg2
+    lda vmp_target+1
+    sta arg2+1
+
     ;arg3 has been set above already
 
     lda arg_charset_height
@@ -868,18 +876,18 @@ vmp
     jsr vmc_execute
 
     dec vmp_length
-    beq ++
+    beq .vmp_done
     
     clc
-    lda arg2
+    lda vmp_target
     adc arg_charset_width
-    sta arg2
+    sta vmp_target
     bcc +
-    inc arg2+1
-+   jmp --
+    inc vmp_target+1
++   jmp .vmp_next_character
     
-
-++  rts
+.vmp_done
+    rts
 
 ; VCS: VDC Charset Set - sets the parameters for the VMP command. these settings stick, so they don't need to be given for each VMP call
 vcs
@@ -939,6 +947,7 @@ arg_charset_height  !byte 0 ; height in scanlines of one character
 arg_charset_size    !byte 0 ; the product of width*height. used to calculate offset of character in charset
 
 vmp_length          !byte 0 ; length of the text to print
+vmp_target          !word 0 ; target position of VMP output. needed b/c of conflict with VMCs arg2
 
 test
     lda $ff00
