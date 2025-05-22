@@ -779,6 +779,10 @@ vmp
     lda $6
     sta vmp_length
 
+    ;arg3(count16) is not changed in VMC, so we can set it here already
+    lda arg_charset_width
+    sta arg3
+
     ;read virtual screen width from register 1 and store it in arg5 (arg4 would work, too. but for VMC it's arg5 anyways)
     ;  we could do this in VCS as well. but that would require another persistent byte.
     ;  it's sufficiently fast here, I guess
@@ -790,12 +794,13 @@ vmp
     ; iterate over characters - from 0 to arg3-1
     
     ldy #0
-    sty offset
+    sty offset      ;keeps track of current character position we're iterating
 
-    ; load next (first) character from arg2
+    ; load next (first) character of second parameter (arg2)
+    ; the address of that is stored in $24/$25
 --  ;lda (arg2),y   ;not this. we need to use FETCH
     ldy offset
-    ldx #$7f
+    ldx #$7f        ;bank 1
     jsr k_fetch
     inc offset
 
@@ -842,26 +847,29 @@ vmp
 +   dex
     bne -
  
-    ;  call vmc arg_charset_address+offset,arg1,arg_charset_width,arg_charset_height,arg4<virtual screen width>
-    ;n_arg2=arg1
-    ;n_arg1=offset
-    ;n_arg3=arg_charset_width
-    ;n_arg4=arg_charset_height
-    ;n_arg5=arg5
+    ;  call vmc arg_charset_address,
+    ;           vcp_arg1,
+    ;           arg_charset_width,
+    ;           arg_charset_height,
+    ;           arg4<virtual screen width>
+
+    ;vmc_arg1=arg_charset_address+arg_charset_offset*n
+    ;vmc_arg2=vcp_arg1
+    ;vmc_arg3=arg_charset_width
+    ;vmc_arg4=arg_charset_height
+    ;vmc_arg5=arg5
     
-    ;arg2 has been set above already
+    ;arg2 has been set above already, and will be incremented below
+    ;arg3 has been set above already
 
     lda arg_charset_height
     sta arg4
 
-    lda arg_charset_width
-    sta arg3
     jsr vmc_execute
 
     dec vmp_length
     beq ++
     
-    iny
     clc
     lda arg2
     adc arg_charset_width
