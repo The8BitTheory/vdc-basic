@@ -27,7 +27,7 @@
 ; 10 Feb 2024   extended VMC: added parameter for source-address increment per repetition
 
 ; v2e
-; Mai 2025      introducing VCL: a command-list to subsequently execute vdc-basic commands from ML
+; 23 Mai 2025      introducing VCL: a command-list to subsequently execute vdc-basic commands from ML
 
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
