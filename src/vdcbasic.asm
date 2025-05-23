@@ -807,55 +807,55 @@ vmp
     ; 32-63  =  ok  00100000-00111111
     ; 64-95  = -64  01000000-01011111
     ; 96-127 = -32  01100000-01111111
-    sta arg1    ;using arg1 only temporary here, so we can use BIT
+;    sta arg1    ;using arg1 only temporary here, so we can use BIT
     
     ; if between 64 and 95, subtract 64 (remove bit 6)
-    lda #%01000000
-    bit arg1
-    beq +
-    clc
-    lda arg1
+;    lda #%01000000
+;    bit arg1
+;    beq +
+;    clc
+;    lda arg1
     ;and #%10111111
-    sbc #64
-    sta arg1
-    jmp .calculate
+;    sbc #64
+;    sta arg1
+;    jmp .calculate
 
     ; if betwen 96 and 127, subtract 32 (remove bit 5)
-+   lda #%01100000
-    bit arg1
-    beq .calculate
-    clc
-    lda arg1
+;+   lda #%01100000
+;    bit arg1
+;    beq .calculate
+;    clc
+;    lda arg1
     ;and #%11011111
-    sbc #32
-    sta arg1
+;    sbc #32
+;    sta arg1
 
     ;  calculate offset of character in charset
-.calculate
-    ; add 32 to offset. quick and dirty.
-    clc
-    lda arg1
-    adc #32
-    sta arg1
-    bcc +
-    inc arg1+1
-
-+   tax
+;.calculate
+    ; sub 32 from offset. quick and dirty.
+    sec
+;    lda arg1
+    sbc #31
+;    sta arg1
+;    bcs +
+;    inc arg1+1
+;+
+    tax
 
     lda arg_charset_address
     sta arg1
     lda arg_charset_address+1
     sta arg1+1
 
--   clc
+-   dex
+    beq +
+    clc
     lda arg1
     adc arg_charset_size
     sta arg1
-    bcc +
+    bcc -
     inc arg1+1
-+   dex
-    bpl -
-
+    jmp -
 
 +
     ;  call vmc arg_charset_address,
