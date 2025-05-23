@@ -25,13 +25,13 @@
 ; 29 Sep 2023   extended VMC: now allows repetitions and offset-increment for target-address
 ; v2d
 ; 10 Feb 2024   extended VMC: added parameter for source-address increment per repetition
-
 ; v2e
 ; 23 Mai 2025   introducing VMP and VCS: Print and Print-Setup commands
-
+; v2f
+; Mai 2025 
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
-!macro message {!pet "vdc basic v2e installed"}
+!macro message {!pet "vdc basic v2f installed"}
 
   !to "vdcbasic2e.bin", cbm
 
@@ -259,6 +259,7 @@ io_on
     sta $ff00
     rts
 
+chrget = $0380
 chrgot = $0386
 syn ; wait for end of text window, then write register values
     jsr chrgot  ; anything else?
@@ -410,15 +411,24 @@ complex_instruction_block_entry
 
     jsr chrgot  ; anything else?
     beq +
-    
+
     ; parse nr of repetitions
     jsr b_skip_comma
+
     jsr b_parse_uint8_to_X
     stx arg4
 
     ;parse target address increase
     jsr b_skip_comma
-    jsr b_parse_uint8_to_X
+
+    ; accumulator holds next character at this point. $ab is dash
+    cmp #$ab    ;check for -
+    bne +       ;no -, then continue parsing
+    lda #1
+    sta vmc_negative
+    jsr chrget  ;yes. then skip character
+    
++   jsr b_parse_uint8_to_X  
     stx arg5
     
     jmp ++
@@ -507,7 +517,7 @@ vmc_execute
     ora #128
     jsr A_to_vdc_reg_X
     ; set source
---    ldy arg1
+--  ldy arg1
     lda arg1 + 1
     ldx #32
     jsr AY_to_vdc_regs_Xp1
@@ -521,8 +531,12 @@ vmc_execute
     ldy arg3 + 1
     jsr vdc_do_YYAA_cycles
     
+    ; set nr repeats
     dec arg4
     beq .vmc_done
+
+    lda vmc_negative
+    bne .vmc_decrement
 
     ; increase target address
     clc         ;0e14 --> sec (38h, dec 56)
@@ -532,6 +546,17 @@ vmc_execute
     
     bcc +       ;0e1b --> bcs + (0xb0, 176)
     inc arg2+1  ;0e1d --> dec  (0xc6, 198)
+    jmp +
+
+.vmc_decrement
+
+    sec
+    lda arg2
+    sbc arg5
+    sta arg2
+
+    bcs +
+    dec arg2+1
 
     ; should source address be increased?
 +   lda arg6
@@ -548,6 +573,10 @@ vmc_execute
     jmp --
 
 .vmc_done
+    ;delete decrement flag
+    lda #0
+    sta vmc_negative
+
     jmp complex_instruction_shared_exit
 
 !zone transfer_stuff
@@ -915,3 +944,5 @@ arg_charset_size    !byte 0 ; the product of width*height. used to calculate off
 vmp_length          !byte 0 ; length of the text to print
 vmp_target          !word 0 ; target position of VMP output. needed b/c of conflict with VMCs arg2
 vmp_offset          !byte 0 ; current position of text to print
+
+vmc_negative        !byte 0 ; if target address increment is negative (ie subtracting from the address)
