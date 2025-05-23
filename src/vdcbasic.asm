@@ -49,12 +49,6 @@ arg4  = $89 ; byte - used by VMC for nr of repetitions and VMP for length of str
 arg5  = $8A ; word - by now only used by VMC for target address increase (only used as byte)
 arg6  = $8C ; word - by now only used by VMC for source address increase (only used as byte)
 
-offset = $8E
-
-;arg_charset_address = $72; STRNG2
-;arg_charset_width  = $8E ; byte - by now only used by VCP for storing width of chars in bytes
-;arg_charset_height  = $8F ; byte - by now only used by VCP for storing height of chars in scanlines
-
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
 b_parse_uint16_comma_uint8  = $8803 ; read unsigned 16-bit value to linnum, comma, unsigned 8-bit value to X
@@ -792,54 +786,22 @@ vmp
     ; iterate over characters - from 0 to arg3-1
     
     ldy #0
-    sty offset      ;keeps track of current character position we're iterating
+    sty vmp_offset      ;keeps track of current character position we're iterating
 
     ; load next (first) character of second parameter (arg2)
     ; the address of that is stored in $24/$25
     ;lda (arg2),y   ;not this. we need to use FETCH
 .vmp_next_character
-    ldy offset
+    ldy vmp_offset
     ldx #$7f        ;bank 1
     jsr k_fetch
-    inc offset
-
-    ;  convert character to screen code
-    ; 32-63  =  ok  00100000-00111111
-    ; 64-95  = -64  01000000-01011111
-    ; 96-127 = -32  01100000-01111111
-;    sta arg1    ;using arg1 only temporary here, so we can use BIT
-    
-    ; if between 64 and 95, subtract 64 (remove bit 6)
-;    lda #%01000000
-;    bit arg1
-;    beq +
-;    clc
-;    lda arg1
-    ;and #%10111111
-;    sbc #64
-;    sta arg1
-;    jmp .calculate
-
-    ; if betwen 96 and 127, subtract 32 (remove bit 5)
-;+   lda #%01100000
-;    bit arg1
-;    beq .calculate
-;    clc
-;    lda arg1
-    ;and #%11011111
-;    sbc #32
-;    sta arg1
+    inc vmp_offset
 
     ;  calculate offset of character in charset
-;.calculate
     ; sub 32 from offset. quick and dirty.
     sec
-;    lda arg1
     sbc #31
-;    sta arg1
-;    bcs +
-;    inc arg1+1
-;+
+
     tax
 
     lda arg_charset_address
@@ -857,20 +819,13 @@ vmp
     inc arg1+1
     jmp -
 
-+
-    ;  call vmc arg_charset_address,
-    ;           vcp_arg1,
-    ;           arg_charset_width,
-    ;           arg_charset_height,
-    ;           arg4<virtual screen width>
-
     ;vmc_arg1=arg_charset_address+arg_charset_offset*n
     ;vmc_arg2=vcp_arg1
     ;vmc_arg3=arg_charset_width
     ;vmc_arg4=arg_charset_height
     ;vmc_arg5=arg5
     
-    lda vmp_target
++   lda vmp_target
     sta arg2
     lda vmp_target+1
     sta arg2+1
@@ -957,3 +912,4 @@ arg_charset_size    !byte 0 ; the product of width*height. used to calculate off
 
 vmp_length          !byte 0 ; length of the text to print
 vmp_target          !word 0 ; target position of VMP output. needed b/c of conflict with VMCs arg2
+vmp_offset          !byte 0 ; current position of text to print
