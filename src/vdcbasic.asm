@@ -816,6 +816,7 @@ vmp
     lda arg1
     ;and #%10111111
     sbc #64
+    sta arg1
     jmp .calculate
 
     ; if betwen 96 and 127, subtract 32 (remove bit 5)
@@ -826,10 +827,19 @@ vmp
     lda arg1
     ;and #%11011111
     sbc #32
+    sta arg1
 
     ;  calculate offset of character in charset
 .calculate
-    tax
+    ; add 32 to offset. quick and dirty.
+    clc
+    lda arg1
+    adc #32
+    sta arg1
+    bcc +
+    inc arg1+1
+
++   tax
 
     lda arg_charset_address
     sta arg1
@@ -845,11 +855,7 @@ vmp
 +   dex
     bpl -
 
-    clc
-    adc #33
-    sta arg1
-    bcc +
-    inc arg1+1
+
 +
     ;  call vmc arg_charset_address,
     ;           vcp_arg1,
