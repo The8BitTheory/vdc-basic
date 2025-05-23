@@ -1,0 +1,13 @@
+{
+    "name": "vdc-basic",
+    "description": "Project vdc-basic",
+    "toolkit": "acme",
+    "sources": [
+        "src/vdcbasic.asm"
+    ],
+    "build": "debug",
+    "definitions": [],
+    "includes": ["C:\\Users\\Klusis\\acme0.97win\\ACME_Lib"],
+    "args": [],
+    "compiler": ""
+}
