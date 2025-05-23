@@ -408,7 +408,7 @@ complex_instruction_parse3args
 ; sibbling to complex_instruction_block_entry. for all instructions without repeat support
 complex_instruction_shared_entry ; read args (uint16, uint16, uint16), remember CR, activate full RAM with I/O
     jsr complex_instruction_parse3args
-    jmp +++
+    jmp remember_mem_conf
 
 ; sibbling to complex_instruction_shared_entry. for all instructions that support repeats
 complex_instruction_block_entry
@@ -441,14 +441,15 @@ complex_instruction_block_entry
     jsr b_parse_uint8_to_X
     stx arg6
    
-    jmp +++
+    jmp remember_mem_conf
 
     ; set source address increase to 0
 +   ldx #0
     stx arg6
 
     ; remember memory configuration for shared exit
-+++   ldx $ff00
+remember_mem_conf
+    ldx $ff00
     stx .cr
     ldx #$3e  ; full RAM with I/O
     stx $ff00
@@ -879,6 +880,7 @@ vmp
     lda arg_charset_height
     sta arg4
 
+    jsr remember_mem_conf
     jsr vmc_execute
 
     dec vmp_length
@@ -897,20 +899,21 @@ vmp
 
 ; VCS: VDC Charset Set - sets the parameters for the VMP command. these settings stick, so they don't need to be given for each VMP call
 vcs
+    jsr complex_instruction_parse3args
+
     ;parse address of the charset in vram.
-    jsr b_parse_uint16
-    sty arg_charset_address
+    lda arg1
+    sta arg_charset_address
+    lda arg1+1
     sta arg_charset_address+1
 
     ;parse width of characters in bytes
-    jsr b_skip_comma
-    jsr b_parse_uint8_to_X
-    stx arg_charset_width
+    lda arg2
+    sta arg_charset_width
 
     ;parse height of characters in scanlines
-    jsr b_skip_comma
-    jsr b_parse_uint8_to_X
-    stx arg_charset_height
+    lda arg3
+    sta arg_charset_height
 
     ;calc size of each character in bytes (width*height)
     lda #0
@@ -954,14 +957,3 @@ arg_charset_size    !byte 0 ; the product of width*height. used to calculate off
 
 vmp_length          !byte 0 ; length of the text to print
 vmp_target          !word 0 ; target position of VMP output. needed b/c of conflict with VMCs arg2
-
-test
-    lda $ff00
-    pha
-    lda #0
-    sta $ff00
-    jsr b_parse_string
-    pla
-    sta $ff00
-    rts
-
