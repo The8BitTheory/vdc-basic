@@ -44,6 +44,8 @@ vdcbasicac6.bin is compiled for address $0ac6.
 		Repetition repeats the copy command the defined number of times.
 		Source address keeps increasing continuously, target address is increased by defined amount each repetition
 		Designed for being used with soft-sprites in mind
+	vcs VRAM_ADDRESS_CHARSET, CHAR_WIDTH, CHAR_HEIGHT	setup charset for graphic printing via VMP (width in bytes, height in scanlines)
+        vmp VRAM_TARGET_ADDRESS, String		print the given String at the specified VRAM address. VCS needs to be called before for correct behavior
 	rtv RAM0_SOURCE, VRAM_TARGET, COUNT16	copy from CPU RAM to VDC RAM
 	vtr VRAM_SOURCE, RAM0_TARGET, COUNT16	copy from VDC RAM to CPU RAM
 	vcc RAM0_SOURCE, VRAM_TARGET, COUNT8	copy charset patterns from CPU RAM to VDC RAM, adding eight-byte gaps
