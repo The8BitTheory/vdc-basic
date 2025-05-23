@@ -774,6 +774,7 @@ vmp
     ;arg3(count16) is not changed in VMC, so we can set it here already
     lda arg_charset_width
     sta arg3
+    ;setting arg3+1 to zero below, when we have the value handy anyways
 
     ;read virtual screen width from register 1 and store it in arg5 (arg4 would work, too. but for VMC it's arg5 anyways)
     ;  we could do this in VCS as well. but that would require another persistent byte.
@@ -787,6 +788,7 @@ vmp
     
     ldy #0
     sty vmp_offset      ;keeps track of current character position we're iterating
+    sty arg3+1          ;setting this here (instead of a couple lines above) because we have zero handy
 
     ; load next (first) character of second parameter (arg2)
     ; the address of that is stored in $24/$25
