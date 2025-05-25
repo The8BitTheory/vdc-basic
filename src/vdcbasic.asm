@@ -414,22 +414,13 @@ complex_instruction_block_entry
 
     ; parse nr of repetitions
     jsr b_skip_comma
-
     jsr b_parse_uint8_to_X
     stx arg4
 
     ;parse target address increase
-    jsr b_skip_comma
-
-    ; accumulator holds next character at this point. $ab is dash
-    cmp #$ab    ;check for -
-    bne +       ;no -, then continue parsing
-    lda #1
-    sta vmc_negative
-    jsr chrget  ;yes. then skip character
-    
-+   jsr b_parse_uint8_to_X  
-    stx arg5
+    jsr b_parse_int16_AAYY
+    sty arg5
+    sta arg5+1
     
     jmp ++
 
@@ -444,7 +435,7 @@ complex_instruction_block_entry
     jsr b_skip_comma
     jsr b_parse_uint8_to_X
     stx arg6
-   
+
     jmp remember_mem_conf
 
     ; set source address increase to 0
@@ -535,47 +526,31 @@ vmc_execute
     dec arg4
     beq .vmc_done
 
-    lda vmc_negative
-    bne .vmc_decrement
-
     ; increase target address
-    clc         ;0e14 --> sec (38h, dec 56)
+    clc
     lda arg2
-    adc arg5    ;0e17 --> sbc (e5, 229)
-    sta arg2
-    
-    bcc +       ;0e1b --> bcs + (0xb0, 176)
-    inc arg2+1  ;0e1d --> dec  (0xc6, 198)
-    jmp +
-
-.vmc_decrement
-
-    sec
-    lda arg2
-    sbc arg5
+    adc arg5
     sta arg2
 
-    bcs +
-    dec arg2+1
+    lda arg2+1
+    adc arg5+1
+    sta arg2+1    
 
     ; should source address be increased?
-+   lda arg6
+    lda arg6
     cmp #0
     beq - ; no. jump to reading target address
 
     ; increase source address
-    clc         ;0e25 --> sec (dec 56)
-    adc arg1    ;0e26 --> sbc (dec 229)
+    clc
+    adc arg1
     sta arg1
 
-    bcc --      ;0e2a --> bcs (dec 176)
-    inc arg1+1  ;0e2c --> dec (dec 198)
+    bcc --
+    inc arg1+1
     jmp --
 
 .vmc_done
-    ;delete decrement flag
-    lda #0
-    sta vmc_negative
 
     jmp complex_instruction_shared_exit
 
@@ -818,6 +793,7 @@ vmp
     ldy #0
     sty vmp_offset      ;keeps track of current character position we're iterating
     sty arg3+1          ;setting this here (instead of a couple lines above) because we have zero handy
+    sty arg5+1
 
     ; load next (first) character of second parameter (arg2)
     ; the address of that is stored in $24/$25
@@ -932,9 +908,31 @@ vcs
 ;  0 leads to end of vcl instruction
 ;  >0 interprets next bytes according to the value here (ie 1-7)
 
+
+;  vcl parameters: <address of list>,<bank of list>
 vcl
+    jsr b_parse_uint16
+    sty vmp_target
+    sta vmp_target + 1
+
+    jsr chrgot
+    beq .vcl_done
+
+    jsr b_skip_comma
+    jsr b_parse_uint8_to_X
+    stx vmp_length
+
+.vcl_done
     rts
 
+b_parse_int16_AAYY
+    JSR chrget    ; CHRGET
+
+    JSR $77EF    ; Evaluate expression
+    JSR $77DA    ; Confirm numeric
+    JSR $849F    ; Float to fixed
+
+    rts
 
 arg_charset_address !word 0 ; the address in VRAM where the character set is stored
 arg_charset_width   !byte 0 ; width in bytes of one character
