@@ -28,12 +28,12 @@
 ; v2e
 ; 23 Mai 2025   introducing VMP and VCS: Print and Print-Setup commands
 ; v2f
-; Mai 2025 
+; Mai 2025      introducing decrements for VMC source and target addresses
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v2f installed"}
 
-  !to "vdcbasic2e.bin", cbm
+  !to "vdcbasic2f.bin", cbm
 
   !source <6502/std.a>    ; for +bit16
   !source <6502/opcodes.a>  ; for AND/ORA self-mods
@@ -48,6 +48,8 @@ arg3  = $87 ; word
 arg4  = $89 ; byte - used by VMC for nr of repetitions and VMP for length of string
 arg5  = $8A ; word - by now only used by VMC for target address increase (only used as byte)
 arg6  = $8C ; word - by now only used by VMC for source address increase (only used as byte)
+
+arg_address  =$8E ; target position of VMP output and address to read VCL from
 
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
@@ -162,7 +164,7 @@ execute_instruction
     pha
     lda instruction_ptrs, y
     pha
-    jmp $0380
+    jmp chrget
 
 call_function
     ldx #0
@@ -187,7 +189,7 @@ instruction_strings
     !pet "rtV", "vtR", "vcC", "swP"
     !pet "rsT", "syN"
     !pet "disP", "attR", "crsR"
-    !pet "vcS", "vmP", "vcL"
+    !pet "vcS", "vmP", "zzZ", "vcL"
     !byte 0 ; terminator
 instruction_ptrs
     !word rgw - 1, rga - 1, rgo - 1
@@ -196,7 +198,7 @@ instruction_ptrs
     !word rtv - 1, vtr - 1, vcc - 1, swp - 1
     !word rst - 1, syn - 1
     !word disp - 1, attr - 1, crsr - 1
-    !word vcs - 1, vmp - 1, vcl - 1
+    !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
 function_strings
     !pet "rgD", "vmD"
     !byte 0 ; terminator
@@ -760,8 +762,8 @@ reset_vdc_registers
 vmp
     ;parse target address (where to render the text to)
     jsr b_parse_uint16
-    sty vmp_target
-    sta vmp_target + 1
+    sty arg_address
+    sta arg_address + 1
 
     ;parse location and length of string (location in bank 1)
     jsr b_skip_comma
@@ -845,9 +847,9 @@ vmp
     ;vmc_arg4=arg_charset_height
     ;vmc_arg5=arg5
     
-+   lda vmp_target
++   lda arg_address
     sta arg2
-    lda vmp_target+1
+    lda arg_address+1
     sta arg2+1
 
     ;arg3 has been set above already
@@ -862,11 +864,11 @@ vmp
     beq .vmp_done
     
     clc
-    lda vmp_target
+    lda arg_address
     adc arg_charset_width
-    sta vmp_target
+    sta arg_address
     bcc +
-    inc vmp_target+1
+    inc arg_address+1
 +   jmp .vmp_next_character
     
 .vmp_done
@@ -922,20 +924,54 @@ vcs
 ;  >0 interprets next bytes according to the value here (ie 1-7)
 
 
-;  vcl parameters: <address of list>,<bank of list>
+;  vcl parameters: <address of list>,[<bank of list-address>]
+!zone command_list {
 vcl
     jsr b_parse_uint16
-    sty vmp_target
-    sta vmp_target + 1
+    sty arg_address
+    sta arg_address + 1
 
     jsr chrgot
     beq .vcl_done
 
     jsr b_skip_comma
     jsr b_parse_uint8_to_X
-    stx vmp_length
+    
+    ; check X-register
+    txa
+    bne +   ;not zero, check for 1
+    ldx #$3f
+    jmp ++
+
++   cpx #1
+    bne +
+    ldx #$7f
+    jmp ++
+
++   ldx #01
+
+; --- interpret commands ---
+
+; read first byte (command type)
+++  lda #arg_address
+    sta $02aa
+
+    ldy #0
+    sty vmp_offset
+
+    ldy vmp_offset
+    ;ldx #$7f        ;bank 1
+    jsr k_fetch
+    inc vmp_offset
+
 
 .vcl_done
+    rts
+
+}
+
+; dummy entry to skip token $fe3a
+zzz
     rts
 
 b_parse_int16_AAYY
@@ -953,7 +989,4 @@ arg_charset_height  !byte 0 ; height in scanlines of one character
 arg_charset_size    !byte 0 ; the product of width*height. used to calculate offset of character in charset
 
 vmp_length          !byte 0 ; length of the text to print
-vmp_target          !word 0 ; target position of VMP output. needed b/c of conflict with VMCs arg2
 vmp_offset          !byte 0 ; current position of text to print
-
-vmc_negative        !byte 0 ; if target address increment is negative (ie subtracting from the address)
