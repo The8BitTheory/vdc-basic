@@ -428,19 +428,20 @@ complex_instruction_block_entry
 +   ldx #1
     stx arg4
 
-++    jsr chrgot ; do we have another parameter?
+++  jsr chrgot ; do we have another parameter?
     beq +
     
     ; parse source address increase per repetition
-    jsr b_skip_comma
-    jsr b_parse_uint8_to_X
-    stx arg6
+    jsr b_parse_int16_AAYY
+    sty arg6
+    sta arg6+1
 
     jmp remember_mem_conf
 
     ; set source address increase to 0
 +   ldx #0
     stx arg6
+    stx arg6+1
 
     ; remember memory configuration for shared exit
 remember_mem_conf
@@ -507,11 +508,13 @@ vmc_execute
     jsr vdc_reg_X_to_A
     ora #128
     jsr A_to_vdc_reg_X
+
     ; set source
 --  ldy arg1
     lda arg1 + 1
     ldx #32
     jsr AY_to_vdc_regs_Xp1
+
     ; set target
 -   ldy arg2
     lda arg2 + 1
@@ -537,18 +540,26 @@ vmc_execute
     sta arg2+1    
 
     ; should source address be increased?
+    ; check HB
+    lda arg6+1
+    cmp #0
+    bne +       ; yes. jump to increasing source address
+
+    ; check LB (only when HB equals zero)
     lda arg6
     cmp #0
-    beq - ; no. jump to reading target address
+    beq -       ; LB not zero. jump to updating target address register (ie leave source address register alone)
 
     ; increase source address
-    clc
-    adc arg1
++   clc
+    lda arg1
+    adc arg6
     sta arg1
 
-    bcc --
-    inc arg1+1
-    jmp --
+    lda arg1+1
+    adc arg6+1
+    sta arg1+1
+    jmp --      ; jump to updating source address register
 
 .vmc_done
 
@@ -794,6 +805,8 @@ vmp
     sty vmp_offset      ;keeps track of current character position we're iterating
     sty arg3+1          ;setting this here (instead of a couple lines above) because we have zero handy
     sty arg5+1
+    sty arg6
+    sty arg6+1
 
     ; load next (first) character of second parameter (arg2)
     ; the address of that is stored in $24/$25
