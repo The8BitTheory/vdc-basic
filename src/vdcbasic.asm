@@ -42,14 +42,25 @@
 
 ; zp
 linnum  = $16 ; uint16 for POKE, PEEK(), etc.
+
 arg1  = $83 ; actually colors and scale factors for graphics
 arg2  = $85 ; word
 arg3  = $87 ; word
-arg4  = $89 ; byte - used by VMC for nr of repetitions and VMP for length of string
-arg5  = $8A ; word - by now only used by VMC for target address increase (only used as byte)
-arg6  = $8C ; word - by now only used by VMC for source address increase (only used as byte)
+arg4  = $89 ; word - used as byte by VMC for nr of repetitions and VMP for length of string
+arg5  = $8B ; word - by now only used by VMC for target address increase (only used as byte)
+arg6  = $8D ; word - by now only used by VMC for source address increase (only used as byte)
 
-arg_address  =$8E ; target position of VMP output and address to read VCL from
+arg_address    = $77 ; word. target position of VMP output and address to read VCL from
+
+;$9-$14 should also be safely available. 11 bytes
+vcl_command_id = $9
+
+;$26-$2c should also be safely available. 6 bytes
+offset_1       = $26
+offset_2       = $27
+arg_bank       = $28
+arg_loop       = $29
+
 
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
@@ -445,6 +456,8 @@ complex_instruction_block_entry
     stx arg6
     stx arg6+1
 
+    ldy arg3    ;this is to keep compatibility with complex_instruction_shared_entry
+
     ; remember memory configuration for shared exit
 remember_mem_conf
     ldx $ff00
@@ -463,8 +476,10 @@ complex_instruction_shared_exit ; restore memory configuration
     +addcode_vdc_do_YYAA_cycles
 
 vmf ; fill VRAM with value
-    jsr complex_instruction_shared_entry  ; > AAYY = arg3
+    jsr complex_instruction_block_entry  ; > AAYY = arg3
     ; decrement byte counter because the first one will be written manually
+
+vmf_execute
     tya ; take a look at low byte
     bne +
       dec arg3 + 1
@@ -474,8 +489,9 @@ vmf ; fill VRAM with value
     jsr vdc_reg_X_to_A
     and #$7f
     jsr A_to_vdc_reg_X
+    
     ; write first byte
-    lda arg2
+-   lda arg2
     ;set target
     ldy arg1
     ldx arg1 + 1
@@ -485,19 +501,21 @@ vmf ; fill VRAM with value
     ldy arg3 + 1
     jsr vdc_do_YYAA_cycles
     
-;   dec arg4
-;   beq +
+    dec arg4
+    beq +
     
-;   clc
-;   lda arg1
-;   adc arg5
-;   sta arg1
+    clc
+    lda arg1
+    adc arg5
+    sta arg1
+
+    lda arg1+1
+    adc arg5+1
+    sta arg1+1
+
+    jmp -
     
-;   bcc -
-;   inc arg1+1
-;   jmp -
-    
-    jmp complex_instruction_shared_exit
++   jmp complex_instruction_shared_exit
 
 ; this is parsing VMC parameters from basic
 vmc ; copy VRAM to VRAM
@@ -804,7 +822,7 @@ vmp
     ; iterate over characters - from 0 to arg3-1
     
     ldy #0
-    sty vmp_offset      ;keeps track of current character position we're iterating
+    sty offset_1      ;keeps track of current character position we're iterating
     sty arg3+1          ;setting this here (instead of a couple lines above) because we have zero handy
     sty arg5+1
     sty arg6
@@ -814,10 +832,10 @@ vmp
     ; the address of that is stored in $24/$25
     ;lda (arg2),y   ;not this. we need to use FETCH
 .vmp_next_character
-    ldy vmp_offset
+    ldy offset_1
     ldx #$7f        ;bank 1
     jsr k_fetch
-    inc vmp_offset
+    inc offset_1
 
     ;  calculate offset of character in charset
     ; sub 32 from offset. quick and dirty.
@@ -914,9 +932,10 @@ vcs
 ;  2: vmc with 5 parameters
 ;  3: vmc with 6 parameters
 ;  4: vmf with 3 parameters
-;  5: vmf with 5 parameters (reserved, not yet implemented)
+;  5: vmf with 5 parameters
 ;  6: vmw with 2 parameters
 ;  7: vmw with 4 parameters (reserved, not yet implemented)
+; ff: sleep with 1 parameter (jiffies to sleep)
 ; 
 ;  bytes after that are the parameters (can be 1 or 2 bytes each)
 ;  after last parameter, next byte is checked.
@@ -932,37 +951,101 @@ vcl
     sta arg_address + 1
 
     jsr chrgot
-    beq .vcl_done
+    beq ++
 
     jsr b_skip_comma
     jsr b_parse_uint8_to_X
     
-    ; check X-register
+    ; check X-register and set MMU-mapping for chosen bank.
     txa
     bne +   ;not zero, check for 1
     ldx #$3f
     jmp ++
 
 +   cpx #1
-    bne +
+    bne +   ;not 1, goto default handling
     ldx #$7f
     jmp ++
 
-+   ldx #01
++   ldx #01 ; default case, this sets bank 14
+    jmp .vcl_command
+
+++  stx arg_bank
 
 ; --- interpret commands ---
-
+.vcl_command
 ; read first byte (command type)
-++  lda #arg_address
+    lda #arg_address
     sta $02aa
 
     ldy #0
-    sty vmp_offset
+    sty offset_1
+    sty offset_2
 
-    ldy vmp_offset
-    ;ldx #$7f        ;bank 1
+    ; clear args
+    ldx #11
+    tya
+-   sta arg1,x
+    dex
+    bpl -
+
+.vcl_next_byte
+    ldy offset_1
+    ldx arg_bank
     jsr k_fetch
-    inc vmp_offset
+    bne +
+    jmp .vcl_done           ; acc contains zero. the VCL is done
+
++   sta vcl_command_id
+    inc offset_1
+
+    ;  1: vmc
+    ;  2: vmf
+    ;  3: vmw
+
+    tax
+    lda vcl_parameter_bytes,x
+    sta arg_loop
+
+-   ldy offset_1
+    jsr k_fetch
+    inc offset_1
+
+    ldx offset_2
+    sta arg1,x
+    inc offset_2
+    
+    cpx arg_loop
+    bne -
+    
+    lda vcl_command_id
+    cmp #1
+    bne +
+    jsr remember_mem_conf
+    jsr vmc_execute
+    jmp ++
+
++   cmp #2
+    bne +
+    jsr remember_mem_conf
+    jsr vmf_execute
+    jmp ++
+
++   cmp #3
+    bne +
+
+    ldy arg1
+    ldx arg1+1
+    lda arg2
+    jsr A_to_vram_XXYY
+    jmp ++
+
++   ;handle unknown command-id
+    jsr k_primm
+    !pet "Invalid"
+    rts
+
+++  jmp .vcl_next_byte
 
 
 .vcl_done
@@ -989,4 +1072,5 @@ arg_charset_height  !byte 0 ; height in scanlines of one character
 arg_charset_size    !byte 0 ; the product of width*height. used to calculate offset of character in charset
 
 vmp_length          !byte 0 ; length of the text to print
-vmp_offset          !byte 0 ; current position of text to print
+
+vcl_parameter_bytes !byte 0,5-1,9-1,11-1,5-1,9-1,3-1,7-1    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
