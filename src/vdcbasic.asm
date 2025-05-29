@@ -980,6 +980,9 @@ vcl
 
     ldy #0
     sty offset_1
+
+.vcl_next_command
+    ldy #0
     sty offset_2
 
     ; clear args
@@ -989,7 +992,6 @@ vcl
     dex
     bpl -
 
-.vcl_next_byte
     ldy offset_1
     ldx arg_bank
     jsr k_fetch
@@ -999,9 +1001,9 @@ vcl
 +   sta vcl_command_id
     inc offset_1
 
-    ;  1: vmc
-    ;  2: vmf
-    ;  3: vmw
+    ;  1,2,3: vmc
+    ;  4,5: vmf
+    ;  6,7: vmw
 
     tax
     lda vcl_parameter_bytes,x
@@ -1018,21 +1020,27 @@ vcl
     cpx arg_loop
     bne -
     
-    lda vcl_command_id
-    cmp #1
-    bne +
+    ; VMC (1-3)
+    lda #3
+    cmp vcl_command_id
+    bmi +
     jsr remember_mem_conf
     jsr vmc_execute
     jmp ++
 
-+   cmp #2
-    bne +
+    ; VMF (4-5)
++   lda #5
+    cmp vcl_command_id
+    bmi +
     jsr remember_mem_conf
+    ldy arg3
     jsr vmf_execute
     jmp ++
 
-+   cmp #3
-    bne +
+    ; VMW (6-7)
++   lda #7
+    cmp vcl_command_id
+    bmi +
 
     ldy arg1
     ldx arg1+1
@@ -1045,7 +1053,7 @@ vcl
     !pet "Invalid"
     rts
 
-++  jmp .vcl_next_byte
+++  jmp .vcl_next_command
 
 
 .vcl_done
@@ -1073,4 +1081,4 @@ arg_charset_size    !byte 0 ; the product of width*height. used to calculate off
 
 vmp_length          !byte 0 ; length of the text to print
 
-vcl_parameter_bytes !byte 0,5-1,9-1,11-1,5-1,9-1,3-1,7-1    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
+vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
