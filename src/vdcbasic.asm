@@ -38,7 +38,7 @@
   !source <6502/std.a>    ; for +bit16
   !source <6502/opcodes.a>  ; for AND/ORA self-mods
   !source <cbm/c128/kernal.a> ; for k_primm
-  !source "./src/vdclib.a"  ; macros and code parts
+  !source "./src/vdclib.asm"  ; macros and code parts
 
 ; zp
 linnum  = $16 ; uint16 for POKE, PEEK(), etc.
@@ -201,6 +201,7 @@ instruction_strings
     !pet "rsT", "syN"
     !pet "disP", "attR", "crsR"
     !pet "vcS", "vmP", "zzZ", "vcL"
+    !pet "vdL", "vdR", "vdB", "vmT"
     !byte 0 ; terminator
 instruction_ptrs
     !word rgw - 1, rga - 1, rgo - 1
@@ -210,6 +211,7 @@ instruction_ptrs
     !word rst - 1, syn - 1
     !word disp - 1, attr - 1, crsr - 1
     !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
+    !word vdl -1, vdr -1, vdb -1, vmt -1
 function_strings
     !pet "rgD", "vmD"
     !byte 0 ; terminator
@@ -380,10 +382,55 @@ disp ; set address of display buffer
 
 vmw ; VRAM location = value
     jsr simple_instruction_shared_entry ; >> linnum, X
+
+;    jsr chrgot
+;    beq vmw_execute
+
+;    stx arg2
+
+;    lda linnum
+;    sta arg1
+;    lda linnum+1
+;    sta arg1+1
+
+;    jsr b_parse_comma_uint16
+;    sty arg3
+;    sta arg3+1
+
+;    jsr b_skip_comma
+;    jsr b_parse_int16_AAYY
+;    sty arg4
+;    sta arg4+1
+
+;-   ldx arg2
+;    ldy arg1
+;    sty linnum
+;    ldx arg1+1
+;    stx linnum+1
+
+;    jsr vmw_execute
+;    dec arg4
+;    beq +
+
+;    clc
+;    lda arg1
+;    adc arg4
+;    sta arg1 
+
+;    lda arg1+1
+;    adc arg4+1
+;    sta arg1+1
+
+;    jmp -
+
+vmw_execute
     txa
     ldy linnum
     ldx linnum + 1
-    jmp A_to_vram_XXYY
+    jsr A_to_vram_XXYY
+
++   rts
+
 
 vma ; VRAM location &= value
     lda #opcode_AND_8
@@ -584,6 +631,31 @@ vmc_execute
 .vmc_done
 
     jmp complex_instruction_shared_exit
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Video Memory Transparent-Copy. Like VMC with a mix of VCL.
+; vram-source is read continuously, target address can have gaps (used for transparency)
+; effectively executes a number of VMC calls
+; parameters: vram-source, vram-target, address of command-bytes (target-offset, nr bytes to copy)
+vmt
+    jsr complex_instruction_shared_entry
+    
+    lda arg3
+    sta arg_address
+    lda arg3+1
+    sta arg_address+1
+
+    ; parse command-bytes
+
+    ;read word 1 -> increase vram-target
+
+    ;read word 2 -> set arg3
+
+    ;execute vmc with 3 params
+
+    ; goto parse command-bytes
+
+    rts
 
 !zone transfer_stuff
 
@@ -974,7 +1046,6 @@ vcl
 
 ; --- interpret commands ---
 .vcl_command
-; read first byte (command type)
     lda #arg_address
     sta $02aa
 
@@ -992,6 +1063,7 @@ vcl
     dex
     bpl -
 
+; read first byte (command type)
     ldy offset_1
     ldx arg_bank
     jsr k_fetch
@@ -1043,14 +1115,20 @@ vcl
     bmi +
 
     ldy arg1
+    sty linnum
     ldx arg1+1
-    lda arg2
-    jsr A_to_vram_XXYY
+    stx linnum+1
+
+    ldx arg2
+    
+    jsr io_on
+    jsr vmw_execute
     jmp ++
 
 +   ;handle unknown command-id
     jsr k_primm
     !pet "Invalid"
+    !byte 0
     rts
 
 ++  jmp .vcl_next_command
@@ -1060,6 +1138,18 @@ vcl
     rts
 
 }
+
+; draw line
+vdl
+    rts
+
+; draw rectangle (x1,y1,x2,y2)
+vdr
+    rts
+
+; draw box 4 x/y pairs
+vdb
+    rts
 
 ; dummy entry to skip token $fe3a
 zzz
@@ -1073,6 +1163,30 @@ b_parse_int16_AAYY
     JSR $849F    ; Float to fixed
 
     rts
+
+tA_to_vram_XXYY
+    pha
+    txa
+    jsr tAY_to_vdc_regs_18_19
+    ldx #31
+    pla
+    jmp tA_to_vdc_reg_X
+
+tAY_to_vdc_regs_18_19
+    ldx #18
+;AY_to_vdc_regs_Xp1 ; write A and Y to consecutive VDC registers X and X+1
+    jsr tA_to_vdc_reg_X
+    tya
+    inx
+tA_to_vdc_reg_X ; write A to VDC register X
+     stx vdc_reg
+;A_to_vdc_data ; write A to currently selected VDC register
+-   bit vdc_state
+    bpl -
+    sta vdc_data
+
+    rts
+
 
 arg_charset_address !word 0 ; the address in VRAM where the character set is stored
 arg_charset_width   !byte 0 ; width in bytes of one character
