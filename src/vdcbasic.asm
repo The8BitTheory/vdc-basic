@@ -53,14 +53,15 @@ arg6  = $8D ; word - by now only used by VMC for source address increase (only u
 arg_address    = $77 ; word. target position of VMP output and address to read VCL from
 
 ;$9-$14 should also be safely available. 11 bytes
-vcl_command_id = $9
+vcl_command_id  = $9
+multi1          = $a    ;word. for multiplications
+multi2          = $c    ;word. for multiplications
 
-;$26-$2c should also be safely available. 6 bytes
-offset_1       = $26
-offset_2       = $27
-arg_bank       = $28
-arg_loop       = $29
-
+;$26-$2c should also be safely available. 7 bytes
+offset_1        = $26
+offset_2        = $27
+arg_bank        = $28
+arg_loop        = $29
 
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
@@ -201,7 +202,7 @@ instruction_strings
     !pet "rsT", "syN"
     !pet "disP", "attR", "crsR"
     !pet "vcS", "vmP", "zzZ", "vcL"
-    !pet "vdL", "vdR", "vdB", "vmT"
+    !pet "vdL", "vdR", "vdB", "vmS"
     !byte 0 ; terminator
 instruction_ptrs
     !word rgw - 1, rga - 1, rgo - 1
@@ -211,7 +212,7 @@ instruction_ptrs
     !word rst - 1, syn - 1
     !word disp - 1, attr - 1, crsr - 1
     !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
-    !word vdl -1, vdr -1, vdb -1, vmt -1
+    !word vdl -1, vdr -1, vdb -1, vms -1
 function_strings
     !pet "rgD", "vmD"
     !byte 0 ; terminator
@@ -382,54 +383,13 @@ disp ; set address of display buffer
 
 vmw ; VRAM location = value
     jsr simple_instruction_shared_entry ; >> linnum, X
-
-;    jsr chrgot
-;    beq vmw_execute
-
-;    stx arg2
-
-;    lda linnum
-;    sta arg1
-;    lda linnum+1
-;    sta arg1+1
-
-;    jsr b_parse_comma_uint16
-;    sty arg3
-;    sta arg3+1
-
-;    jsr b_skip_comma
-;    jsr b_parse_int16_AAYY
-;    sty arg4
-;    sta arg4+1
-
-;-   ldx arg2
-;    ldy arg1
-;    sty linnum
-;    ldx arg1+1
-;    stx linnum+1
-
-;    jsr vmw_execute
-;    dec arg4
-;    beq +
-
-;    clc
-;    lda arg1
-;    adc arg4
-;    sta arg1 
-
-;    lda arg1+1
-;    adc arg4+1
-;    sta arg1+1
-
-;    jmp -
-
+    
 vmw_execute
     txa
     ldy linnum
     ldx linnum + 1
-    jsr A_to_vram_XXYY
+    jmp A_to_vram_XXYY
 
-+   rts
 
 
 vma ; VRAM location &= value
@@ -568,7 +528,7 @@ vmf_execute
 vmc ; copy VRAM to VRAM
     jsr complex_instruction_block_entry ; > AAYY = arg3
     
-; this can be used with pre-filled parameters, eg via VMP or VCL
+; this can be used with pre-filled parameters, eg via VMP or VCL or VMS
 vmc_execute
     ; set register bit for BLOCK COPY:
     ldx #24
@@ -577,13 +537,15 @@ vmc_execute
     jsr A_to_vdc_reg_X
 
     ; set source
---  ldy arg1
+block_copy_source
+    ldy arg1
     lda arg1 + 1
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
     ; set target
--   ldy arg2
+block_copy_target
+    ldy arg2
     lda arg2 + 1
     jsr AY_to_vdc_regs_18_19
 
@@ -615,7 +577,7 @@ vmc_execute
     ; check LB (only when HB equals zero)
     lda arg6
     cmp #0
-    beq -       ; LB not zero. jump to updating target address register (ie leave source address register alone)
+    beq block_copy_target       ; LB not zero. jump to updating target address register (ie leave source address register alone)
 
     ; increase source address
 +   clc
@@ -626,18 +588,18 @@ vmc_execute
     lda arg1+1
     adc arg6+1
     sta arg1+1
-    jmp --      ; jump to updating source address register
+    jmp block_copy_source      ; jump to updating source address register
 
 .vmc_done
 
     jmp complex_instruction_shared_exit
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Video Memory Transparent-Copy. Like VMC with a mix of VCL.
+; Video Memory Sprite-Copy. Like VMC with a mix of VCL.
 ; vram-source is read continuously, target address can have gaps (used for transparency)
 ; effectively executes a number of VMC calls
 ; parameters: vram-source, vram-target, address of command-bytes (target-offset, nr bytes to copy)
-vmt
+vms
     jsr complex_instruction_shared_entry
     
     lda arg3
@@ -1098,7 +1060,7 @@ vcl
     bmi +
     jsr remember_mem_conf
     jsr vmc_execute
-    jmp ++
+    jmp .vcl_next_command
 
     ; VMF (4-5)
 +   lda #5
@@ -1107,13 +1069,18 @@ vcl
     jsr remember_mem_conf
     ldy arg3
     jsr vmf_execute
-    jmp ++
+    jmp .vcl_next_command
 
     ; VMW (6-7)
 +   lda #7
     cmp vcl_command_id
-    bmi +
+    bmi .vcl_handle_unknown
 
+    lda arg3
+    bne .vcl_vmw_next   
+    inc arg3            ;if arg3 is zero, set it to 1
+
+.vcl_vmw_next
     ldy arg1
     sty linnum
     ldx arg1+1
@@ -1121,30 +1088,76 @@ vcl
 
     ldx arg2
     
+    ; 3 jiffies with vcl block for 100 scanlines height
     jsr io_on
     jsr vmw_execute
-    jmp ++
 
-+   ;handle unknown command-id
+    dec arg3
+    beq .vcl_next_command      ; if no more repitions, go to end of command
+
+    clc
+    lda arg1
+    adc arg4
+    sta arg1
+
+    lda arg1+1
+    adc arg4+1
+    sta arg1+1
+
+    jmp .vcl_vmw_next
+
+    ;handle unknown command-id
+.vcl_handle_unknown
     jsr k_primm
     !pet "Invalid"
     !byte 0
     rts
-
-++  jmp .vcl_next_command
-
 
 .vcl_done
     rts
 
 }
 
-; draw line
+; draw line (x1,y1,x2,y2,color)
 vdl
     rts
 
-; draw rectangle (x1,y1,x2,y2)
+; draw rectangle (x1,y1,x2,y2,<color>,<fill>)
 vdr
+    jsr complex_instruction_parse3args
+    
+    ;y2
+    jsr b_parse_comma_uint16
+    sty arg4
+    sta arg4+1
+
+    ;color
+    jsr b_skip_comma
+    jsr b_parse_uint8_to_X
+    stx arg5
+
+    ;assume fill for now
+    ;jsr chrget
+
+    ;line width in bytes (usually 80)
+    ldx #1
+    jsr vdc_reg_X_to_A
+    sta arg6
+
+    ;multiply y1 with line width
+    ;add x1 to that
+    ; this is the start-address -> arg1
+
+    ;color is arg5 --> arg2
+
+    ;subtract x1 from x2
+    ; this is the length --> arg3
+
+    ;subtract y1 from y2
+    ; this is the nr of repetitions
+
+    ;address-increment is arg6
+
     rts
 
 ; draw box 4 x/y pairs
@@ -1161,29 +1174,6 @@ b_parse_int16_AAYY
     JSR $77EF    ; Evaluate expression
     JSR $77DA    ; Confirm numeric
     JSR $849F    ; Float to fixed
-
-    rts
-
-tA_to_vram_XXYY
-    pha
-    txa
-    jsr tAY_to_vdc_regs_18_19
-    ldx #31
-    pla
-    jmp tA_to_vdc_reg_X
-
-tAY_to_vdc_regs_18_19
-    ldx #18
-;AY_to_vdc_regs_Xp1 ; write A and Y to consecutive VDC registers X and X+1
-    jsr tA_to_vdc_reg_X
-    tya
-    inx
-tA_to_vdc_reg_X ; write A to VDC register X
-     stx vdc_reg
-;A_to_vdc_data ; write A to currently selected VDC register
--   bit vdc_state
-    bpl -
-    sta vdc_data
 
     rts
 
