@@ -40,6 +40,11 @@
   !source <cbm/c128/kernal.a> ; for k_primm
   !source "./src/vdclib.asm"  ; macros and code parts
 
+;build params
+release_vdl = 0
+release_vdr = 0
+release_vdb = 0
+
 ; zp
 linnum  = $16 ; uint16 for POKE, PEEK(), etc.
 
@@ -50,7 +55,7 @@ arg4  = $89 ; word - used as byte by VMC for nr of repetitions and VMP for lengt
 arg5  = $8B ; word - by now only used by VMC for target address increase (only used as byte)
 arg6  = $8D ; word - by now only used by VMC for source address increase (only used as byte)
 
-arg_address    = $77 ; word. target position of VMP output and address to read VCL from
+arg_address    = $72 ; word. target position of VMP output and address to read VCL from
 
 ;$9-$14 should also be safely available. 11 bytes
 vcl_command_id  = $9
@@ -58,10 +63,10 @@ multi1          = $a    ;word. for multiplications
 multi2          = $c    ;word. for multiplications
 
 ;$26-$2c should also be safely available. 7 bytes
-offset_1        = $26
-offset_2        = $27
-arg_bank        = $28
-arg_loop        = $29
+offset_1        = $28
+offset_2        = $29
+arg_bank        = $2a
+arg_loop        = $2b
 
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
@@ -202,7 +207,8 @@ instruction_strings
     !pet "rsT", "syN"
     !pet "disP", "attR", "crsR"
     !pet "vcS", "vmP", "zzZ", "vcL"
-    !pet "vdL", "vdR", "vdB", "vmS"
+    !pet "vmS"
+    ;!pet "vdL", "vdR", "vdB"
     !byte 0 ; terminator
 instruction_ptrs
     !word rgw - 1, rga - 1, rgo - 1
@@ -212,7 +218,9 @@ instruction_ptrs
     !word rst - 1, syn - 1
     !word disp - 1, attr - 1, crsr - 1
     !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
-    !word vdl -1, vdr -1, vdb -1, vms -1
+    !word vms -1
+    ;!word vdl -1, vdr -1, vdb -1, 
+    
 function_strings
     !pet "rgD", "vmD"
     !byte 0 ; terminator
@@ -598,26 +606,82 @@ block_copy_target
 ; Video Memory Sprite-Copy. Like VMC with a mix of VCL.
 ; vram-source is read continuously, target address can have gaps (used for transparency)
 ; effectively executes a number of VMC calls
-; parameters: vram-source, vram-target, address of command-bytes (target-offset, nr bytes to copy)
+; parameters: vram-source, vram-target, address of command-bytes (target-increment, nr bytes to copy). first command-byte holds number of commands
 vms
+    ;jsr complex_instruction_parse3args
     jsr complex_instruction_shared_entry
-    
+
+    ldx #24
+    jsr vdc_reg_X_to_A
+    ora #128
+    jsr A_to_vdc_reg_X
+
+    ; set source
+    ldy arg1
+    lda arg1 + 1
+    ldx #32
+    jsr AY_to_vdc_regs_Xp1
+
     lda arg3
     sta arg_address
     lda arg3+1
     sta arg_address+1
 
-    ; parse command-bytes
+    jsr complex_instruction_shared_exit
 
-    ;read word 1 -> increase vram-target
+    lda #<arg_address
+    sta $02aa
 
-    ;read word 2 -> set arg3
+    ldy #0
+    ldx #$3f        ;bank 1
+    jsr k_fetch
+    
+    ; X holds the nr of commands to execute
+    tax
+    iny
+
+    sty offset_1
+
+    ;add target-offset to vram-target address    
+    ;will need to be made ready for indfet later, I guess
+-   stx arg_loop
+    jsr remember_mem_conf   ;also sets mmu to block 0
+    ldy offset_1
+    clc
+    lda (arg_address),y
+    ;adc arg2
+    sta arg2
+    iny
+
+    lda (arg_address),y
+    ;adc arg2+1
+    sta arg2+1
+    iny
+
+    ;read word 2 -> set arg3    
+    clc
+    lda (arg_address),y
+    sta arg3
+    iny
+
+    lda (arg_address),Y
+    sta arg3+1
+    iny
+    sty offset_1
+
+    ldy #1
+    sty arg4
 
     ;execute vmc with 3 params
+    jsr block_copy_target
 
-    ; goto parse command-bytes
+    ; check for more vms parameters
+    ldx arg_loop
+    dex
+    ;stx arg_loop is done at -
+    bne -
 
-    rts
++   rts
 
 !zone transfer_stuff
 
@@ -969,6 +1033,11 @@ vcs
 ;  5: vmf with 5 parameters
 ;  6: vmw with 2 parameters
 ;  7: vmw with 4 parameters (reserved, not yet implemented)
+;  8: vmo with 2 parameters
+;  9: vmo with 4 parameters (reserved)
+; 10: vma with 2 parameters
+; 11: vma with 4 parameters (reserved)
+; 12: vms with 3 parameters
 ; ff: sleep with 1 parameter (jiffies to sleep)
 ; 
 ;  bytes after that are the parameters (can be 1 or 2 bytes each)
@@ -1118,10 +1187,13 @@ vcl
 
 }
 
+!if release_vdl {
 ; draw line (x1,y1,x2,y2,color)
 vdl
     rts
+}
 
+!if release_vdr {
 ; draw rectangle (x1,y1,x2,y2,<color>,<fill>)
 vdr
     jsr complex_instruction_parse3args
@@ -1159,6 +1231,7 @@ vdr
     ;address-increment is arg6
 
     rts
+}
 
 ; draw box 4 x/y pairs
 vdb
