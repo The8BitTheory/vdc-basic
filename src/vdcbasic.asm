@@ -68,6 +68,7 @@ offset_1        = $26
 offset_2        = $27
 arg_bank        = $28
 arg_loop        = $29
+vms_alpha       = $2a
 
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
@@ -641,6 +642,11 @@ vms
     ldy #0
     ldx #$3f        ;bank 1
     jsr k_fetch
+    sta vms_alpha 
+
+    iny
+    ldx #$3f        ;bank 1
+    jsr k_fetch
     
     ; X holds the nr of commands to execute
     tax
@@ -651,18 +657,29 @@ vms
     ;add target-offset to vram-target address    
     ;will need to be made ready for indfet later, I guess
 -   stx arg_loop
+
     jsr remember_mem_conf   ;also sets mmu to block 0
     ldy offset_1
+
+    ; read vms-command byte (1=block copy with target-addr-increase and length, 2=OR with target-addr increase (length implicitly 1))
+    lda (arg_address),y
+    iny
+
+;------- block copy
+    cmp #1  ;block copy
+    bne +
+
     clc
     lda (arg_address),y
     adc arg_address2
     sta arg2
     iny
 
-    lda (arg_address),y
+    ;lda (arg_address),y
+    lda #0
     adc arg_address2+1
     sta arg2+1
-    iny
+    ;iny
 
     ;read word 2 -> set arg3    
     clc
@@ -670,9 +687,10 @@ vms
     sta arg3
     iny
 
-    lda (arg_address),Y
+    ;lda (arg_address),Y
+    lda #0
     sta arg3+1
-    iny
+    ;iny
     sty offset_1
 
     ldy #1
@@ -680,6 +698,11 @@ vms
 
     ;execute vmc with 3 params
     jsr block_copy_target
+
+;--------- OR value
++   cmp #2  ;or-value
+    bne +
+
 
     ; check for more vms parameters
     ldx arg_loop
