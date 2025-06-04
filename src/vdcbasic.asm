@@ -55,7 +55,8 @@ arg4  = $89 ; word - used as byte by VMC for nr of repetitions and VMP for lengt
 arg5  = $8B ; word - by now only used by VMC for target address increase (only used as byte)
 arg6  = $8D ; word - by now only used by VMC for source address increase (only used as byte)
 
-arg_address    = $72 ; word. target position of VMP output and address to read VCL from
+arg_address     = $72 ; word. target position of VMP output and address to read VCL from
+arg_address2    = $77 ; word. used to hold target offset of VMS
 
 ;$9-$14 should also be safely available. 11 bytes
 vcl_command_id  = $9
@@ -63,10 +64,10 @@ multi1          = $a    ;word. for multiplications
 multi2          = $c    ;word. for multiplications
 
 ;$26-$2c should also be safely available. 7 bytes
-offset_1        = $28
-offset_2        = $29
-arg_bank        = $2a
-arg_loop        = $2b
+offset_1        = $26
+offset_2        = $27
+arg_bank        = $28
+arg_loop        = $29
 
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
@@ -622,6 +623,11 @@ vms
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
+    lda arg2
+    sta arg_address2
+    lda arg2+1
+    sta arg_address2+1
+
     lda arg3
     sta arg_address
     lda arg3+1
@@ -649,12 +655,12 @@ vms
     ldy offset_1
     clc
     lda (arg_address),y
-    ;adc arg2
+    adc arg_address2
     sta arg2
     iny
 
     lda (arg_address),y
-    ;adc arg2+1
+    adc arg_address2+1
     sta arg2+1
     iny
 
