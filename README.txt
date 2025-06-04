@@ -1,6 +1,6 @@
 This VDC-Basic version is taken from https://www.forum64.de/index.php?thread/54960-vdc-basic-re-release
 
-It was published initially published there on November 27, 2013.
+It was initially published there on November 27, 2013.
 An update to it was published on March 16, 2014.
 
 This was improved from it's original version and published by Forum64 user Mac Bacon.
