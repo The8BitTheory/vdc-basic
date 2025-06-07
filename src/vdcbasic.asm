@@ -744,13 +744,12 @@ vms
     sta multi2
 
     ; write the combined-part into vram
-    ldx #18
     pla ;pull high-byte from stack
-    jsr A_to_vdc_reg_X
-
-    ldx #19
+    tax
     pla ;pull low-byte from stack
-    jsr A_to_vdc_reg_X
+    tay
+    txa
+    jsr AY_to_vdc_regs_18_19
 
     lda multi1
     ldx #31
@@ -764,12 +763,11 @@ vms
 
     clc
     adc #1
-    sta multi2
+    tay
     bcc +
     inc multi1
 
 +   lda multi1
-    ldy multi2
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
