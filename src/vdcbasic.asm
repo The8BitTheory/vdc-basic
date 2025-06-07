@@ -743,22 +743,43 @@ vms
     jsr vram_to_A
     sta multi2
 
-    ; write the combined-part into vram
-    pla ;pull high-byte from stack
-    tax
-    pla ;pull low-byte from stack
-    tay
-    txa
-    jsr AY_to_vdc_regs_18_19
+    ; check if lower-nybble should be transparent (rightmost pixel in byte)
+    lda #%00001111
+    and multi1
+    cmp vms_alpha
+    bne +
 
+    ; make right pixel transparent.
+    lda #%11110000
+    and multi1      ; remove right pixel from foreground (multi1)
+    sta multi1
+    lda #%00001111
+    and multi2      ; remove left pixel from background (multi2)
+    ora multi1      ; merge foreground and background
+    sta multi1      ; store new foreground
+    jmp ++
+
+    ; make left pixel transparent
++   lda #%00001111
+    and multi1      ; remove left pixel from foreground (multi1)
+    sta multi1
+    lda #%11110000
+    and multi2
+    ora multi1
+    sta multi1
+
+    ; write the combined-part into vram
+++  pla ;pull high-byte of vram target address from stack
+    tax
+    pla ;pull low-byte of vram target address from stack
+    tay
     lda multi1
-    ldx #31
-    jsr A_to_vdc_reg_X
+    jsr A_to_vram_XXYY
 
     ; increase block-copy (regs 32/33) source by 1 (because we wrote that 1 byte manually)
-    pla     ;pull HB from stack (for reg 32)
-    sta multi1
-    pla     ;pull LB from stack (for reg 33)
+    pla         ;pull HB from stack (for reg 32)
+    sta multi1  ;used as temporary variable here
+    pla         ;pull LB from stack (for reg 33)
 
     clc
     adc #1
