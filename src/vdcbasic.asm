@@ -759,7 +759,6 @@ vms
     pla     ;pull HB from stack (for reg 32)
     sta multi1
     pla     ;pull LB from stack (for reg 33)
-    sta multi2
 
     clc
     adc #1
