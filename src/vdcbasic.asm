@@ -656,9 +656,9 @@ vms
 
     ;add target-offset to vram-target address    
     ;will need to be made ready for indfet later, I guess
--   stx arg_loop
+.vms_arg_loop
+    stx arg_loop
 
-    jsr remember_mem_conf   ;also sets mmu to block 0
     ldy offset_1
 
     ; read vms-command byte (1=block copy with target-addr-increase and length, 2=OR with target-addr increase (length implicitly 1))
@@ -669,6 +669,7 @@ vms
     cmp #1  ;block copy
     bne +
 
+    jsr remember_mem_conf   ;also sets mmu to block 0
     clc
     lda (arg_address),y
     adc arg_address2
@@ -676,10 +677,10 @@ vms
     iny
 
     ;lda (arg_address),y
-    lda #0
+    lda (arg_address),y
     adc arg_address2+1
     sta arg2+1
-    ;iny
+    iny
 
     ;read word 2 -> set arg3    
     clc
@@ -698,19 +699,89 @@ vms
 
     ;execute vmc with 3 params
     jsr block_copy_target
+    jmp .vms_check_more
 
 ;--------- OR value
 +   cmp #2  ;or-value
-    bne +
+    bne ++
 
+    jsr io_on
+
+    ; read values of regs 32/33. this is the soft-sprite-byte address of the OR
+    ldx #33
+    jsr vdc_reg_X_to_A
+    pha     ;push LB to stack
+    ldx #19
+    jsr A_to_vdc_reg_X
+
+    ldx #32
+    jsr vdc_reg_X_to_A
+    pha     ;push HB to stack
+    ldx #18
+    jsr A_to_vdc_reg_X
+
+    jsr vram_to_A   ;this loads the soft-sprite part into A
+    sta multi1
+
+    ; load the background-part into A
+    ldx #19
+    lda (arg_address),y
+    iny
+    clc
+    adc arg_address2
+    pha ;push low-byte to stack
+    jsr A_to_vdc_reg_X
+
+    ldx #18
+    lda (arg_address),y
+    iny
+    sty offset_1
+    adc arg_address2+1
+    pha ;push high-byte to stack
+    jsr A_to_vdc_reg_X
+
+    jsr vram_to_A
+    sta multi2
+
+    ; write the combined-part into vram
+    ldx #18
+    pla ;pull high-byte from stack
+    jsr A_to_vdc_reg_X
+
+    ldx #19
+    pla ;pull low-byte from stack
+    jsr A_to_vdc_reg_X
+
+    lda multi1
+    ldx #31
+    jsr A_to_vdc_reg_X
+
+    ; increase block-copy (regs 32/33) source by 1 (because we wrote that 1 byte manually)
+    pla     ;pull HB from stack (for reg 32)
+    sta multi1
+    pla     ;pull LB from stack (for reg 33)
+    sta multi2
+
+    clc
+    adc #1
+    sta multi2
+    bcc +
+    inc multi1
+
++   lda multi1
+    ldy multi2
+    ldx #32
+    jsr AY_to_vdc_regs_Xp1
 
     ; check for more vms parameters
+.vms_check_more
     ldx arg_loop
     dex
     ;stx arg_loop is done at -
-    bne -
+    beq ++
+    jmp .vms_arg_loop
 
-+   rts
+++  rts
 
 !zone transfer_stuff
 
