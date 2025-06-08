@@ -754,9 +754,6 @@ vms
     and multi1      ; remove right pixel from foreground (multi1)
     sta multi1
     lda #%00001111
-    and multi2      ; remove left pixel from background (multi2)
-    ora multi1      ; merge foreground and background
-    sta multi1      ; store new foreground
     jmp ++
 
     ; make left pixel transparent
@@ -764,12 +761,13 @@ vms
     and multi1      ; remove left pixel from foreground (multi1)
     sta multi1
     lda #%11110000
-    and multi2
-    ora multi1
-    sta multi1
+
+++  and multi2      ; remove pixel from background (multi2)  
+    ora multi1      ; merge foreground and background
+    sta multi1      ; store new foreground
 
     ; write the combined-part into vram
-++  pla ;pull high-byte of vram target address from stack
+    pla ;pull high-byte of vram target address from stack
     tax
     pla ;pull low-byte of vram target address from stack
     tay
