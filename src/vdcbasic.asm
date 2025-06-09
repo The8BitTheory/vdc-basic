@@ -55,7 +55,7 @@ arg4  = $89 ; word - used as byte by VMC for nr of repetitions and VMP for lengt
 arg5  = $8B ; word - by now only used by VMC for target address increase (only used as byte)
 arg6  = $8D ; word - by now only used by VMC for source address increase (only used as byte)
 
-arg_address     = $37 ; word. target position of VMP output and address to read VCL from
+arg_address     = $3f ; word. target position of VMP output and address to read VCL from
 arg_address2    = $77 ; word. used to hold target offset of VMS
 
 ;$a-$14 should also be safely available. 11 bytes
@@ -211,7 +211,15 @@ instruction_strings
     !pet "disP", "attR", "crsR"
     !pet "vcS", "vmP", "zzZ", "vcL"
     !pet "vmS"
-    ;!pet "vdL", "vdR", "vdB"
+!if release_vdl {    
+    !pet "vdL"
+}
+!if release_vdr {
+    !pet "vdR"
+}
+!if release_vdb {
+    !pet "vdB"
+}
     !byte 0 ; terminator
 instruction_ptrs
     !word rgw - 1, rga - 1, rgo - 1
@@ -222,7 +230,15 @@ instruction_ptrs
     !word disp - 1, attr - 1, crsr - 1
     !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
     !word vms -1
-    ;!word vdl -1, vdr -1, vdb -1, 
+!if release_vdl {
+    !word vdl -1
+}
+!if release_vdr {
+    !word vdr -1
+}
+!if release_vdb {
+    !word vdb -1
+}
     
 function_strings
     !pet "rgD", "vmD"
