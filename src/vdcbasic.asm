@@ -28,7 +28,7 @@
 ; v2e
 ; 23 Mai 2025   introducing VMP and VCS: Print and Print-Setup commands
 ; v2f
-; Mai 2025      introducing decrements for VMC source and target addresses
+; Juni 2025      introducing decrements for VMC source and target addresses
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v2f installed"}
@@ -55,20 +55,21 @@ arg4  = $89 ; word - used as byte by VMC for nr of repetitions and VMP for lengt
 arg5  = $8B ; word - by now only used by VMC for target address increase (only used as byte)
 arg6  = $8D ; word - by now only used by VMC for source address increase (only used as byte)
 
-arg_address     = $72 ; word. target position of VMP output and address to read VCL from
+arg_address     = $37 ; word. target position of VMP output and address to read VCL from
 arg_address2    = $77 ; word. used to hold target offset of VMS
 
-;$9-$14 should also be safely available. 11 bytes
-vcl_command_id  = $9
-multi1          = $a    ;word. for multiplications
-multi2          = $c    ;word. for multiplications
+;$a-$14 should also be safely available. 11 bytes
+vcl_command_id  = $a    ;byte
+multi1          = $b    ;word. for multiplications
+multi2          = $d    ;word. for multiplications
+
 
 ;$26-$2c should also be safely available. 7 bytes
-offset_1        = $26
-offset_2        = $27
-arg_bank        = $28
-arg_loop        = $29
-vms_alpha       = $2a
+offset_1        = $26   ;byte
+offset_2        = $27   ;byte
+arg_bank        = $28   ;byte
+arg_loop        = $29   ;byte
+vms_alpha       = $2a   ;byte
 
 ; basic
 b_skip_comma      = $795c ; if comma: skip, otherwise: syntax error
@@ -676,7 +677,6 @@ vms
     sta arg2
     iny
 
-    ;lda (arg_address),y
     lda (arg_address),y
     adc arg_address2+1
     sta arg2+1
