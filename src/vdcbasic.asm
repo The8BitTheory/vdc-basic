@@ -1185,37 +1185,12 @@ vcl
     sty arg_address
     sta arg_address + 1
 
-    jsr chrgot
-    beq ++
-
-    jsr b_skip_comma
-    jsr b_parse_uint8_to_X
-    
-    ; check X-register and set MMU-mapping for chosen bank.
-    txa
-    bne +   ;not zero, check for 1
-    ldx #$3f
-    jmp ++
-
-+   cpx #1
-    bne +   ;not 1, goto default handling
-    ldx #$7f
-    jmp ++
-
-+   ldx #01 ; default case, this sets bank 14
-    jmp .vcl_command
-
-++  stx arg_bank
-
-; --- interpret commands ---
-.vcl_command
-    lda #arg_address
-    sta $02aa
-
     ldy #0
     sty offset_1
 
 .vcl_next_command
+    jsr remember_mem_conf
+
     ldy #0
     sty offset_2
 
@@ -1228,8 +1203,7 @@ vcl
 
 ; read first byte (command type)
     ldy offset_1
-    ldx arg_bank
-    jsr k_fetch
+    lda (arg_address),y
     bne +
     jmp .vcl_done           ; acc contains zero. the VCL is done
 
@@ -1245,7 +1219,7 @@ vcl
     sta arg_loop
 
 -   ldy offset_1
-    jsr k_fetch
+    lda (arg_address),y
     inc offset_1
 
     ldx offset_2
@@ -1259,7 +1233,6 @@ vcl
     lda #3
     cmp vcl_command_id
     bmi +
-    jsr remember_mem_conf
     jsr vmc_execute
     jmp .vcl_next_command
 
@@ -1310,12 +1283,12 @@ vcl
     ;handle unknown command-id
 .vcl_handle_unknown
     jsr k_primm
-    !pet "Invalid"
+    !pet "invalid"
     !byte 0
     rts
 
 .vcl_done
-    rts
+    jmp complex_instruction_shared_exit
 
 }
 
