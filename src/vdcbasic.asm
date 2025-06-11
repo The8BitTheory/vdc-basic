@@ -724,16 +724,20 @@ vms
     jsr io_on
 
     ; read values of regs 32/33. this is the soft-sprite-byte address of the OR
-    ldx #33
-    jsr vdc_reg_X_to_A
-    pha     ;push LB to stack
-    ldx #19
-    jsr A_to_vdc_reg_X
-
     ldx #32
     jsr vdc_reg_X_to_A
-    pha     ;push HB to stack
+    pha         ;push HB to stack
+    sta multi1  ;used as temp variable
+    ldx #33
+    jsr vdc_reg_X_to_A
+    pha         ;push LB to stack
+    sta multi2  ;used as temp variable
+
+    lda multi1
     ldx #18
+    jsr A_to_vdc_reg_X
+    lda multi2
+    ldx #19
     jsr A_to_vdc_reg_X
 
     jsr vram_to_A   ;this loads the soft-sprite part into A
@@ -791,9 +795,11 @@ vms
     jsr A_to_vram_XXYY
 
     ; increase block-copy (regs 32/33) source by 1 (because we wrote that 1 byte manually)
+    pla         ;pull LB from stack (for reg 33)
+    tax
     pla         ;pull HB from stack (for reg 32)
     sta multi1  ;used as temporary variable here
-    pla         ;pull LB from stack (for reg 33)
+    txa
 
     clc
     adc #1
