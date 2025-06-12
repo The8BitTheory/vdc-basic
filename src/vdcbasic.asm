@@ -637,10 +637,13 @@ vms
 
     ; set source
     ldy arg1
+    sty vms_block_source
     lda arg1 + 1
+    sta vms_block_source+1
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
+    ;target address offset (where on screen to put the sprite)
     lda arg2
     sta arg_address2
     lda arg2+1
@@ -684,7 +687,7 @@ vms
 
 ;------- block copy
     cmp #1  ;block copy
-    bne +
+    bne ++
 
     jsr remember_mem_conf   ;also sets mmu to block 0
     clc
@@ -704,8 +707,15 @@ vms
     sta arg3
     iny
 
+    ; write the values of regs 32/33 to vms_block_source
+    clc
+    adc vms_block_source
+    sta vms_block_source
+    bcc +
+    inc vms_block_source+1
+
     ;lda (arg_address),Y
-    lda #0
++   lda #0
     sta arg3+1
     ;iny
     sty offset_1
@@ -713,54 +723,48 @@ vms
     ldy #1
     sty arg4
 
-    ;execute vmc with 3 params
+    ;execute vmc
     jsr block_copy_target
     jmp .vms_check_more
 
 ;--------- OR value
-+   cmp #2  ;or-value
-    bne ++
+++  cmp #2  ;or-value
+    beq +
+    jmp .vms_invalid
 
-    jsr io_on
++   jsr io_on
 
-    ; read values of regs 32/33. this is the soft-sprite-byte address of the OR
-    ldx #32
-    jsr vdc_reg_X_to_A
-    pha         ;push HB to stack
-    sta multi1  ;used as temp variable
-    ldx #33
-    jsr vdc_reg_X_to_A
-    pha         ;push LB to stack
-    sta multi2  ;used as temp variable
-
-    lda multi1
-    ldx #18
-    jsr A_to_vdc_reg_X
-    lda multi2
-    ldx #19
-    jsr A_to_vdc_reg_X
-
-    jsr vram_to_A   ;this loads the soft-sprite part into A
+    ; load sprite-part into A
+    sty offset_1
+    lda vms_block_source+1
+    pha
+    tax
+    lda vms_block_source
+    pha
+    tay
+    txa
+    jsr vram_AAYY_to_A
     sta multi1
 
     ; load the background-part into A
-    ldx #19
-    lda (arg_address),y
-    iny
-    clc
-    adc arg_address2
-    pha ;push low-byte to stack
-    jsr A_to_vdc_reg_X
-
-    ldx #18
+    ; load low-byte from arguments
+    ldy offset_1
     lda (arg_address),y
     iny
     sty offset_1
+    clc
+    adc arg_address2
+    sta multi2  ;temporarily used, as this value needs to go into Y later
+    pha
+
+    ; load high-byte from arguments
+    lda (arg_address),y
+    inc offset_1
     adc arg_address2+1
     pha ;push high-byte to stack
-    jsr A_to_vdc_reg_X
 
-    jsr vram_to_A
+    ldy multi2  ; picking this up from before
+    jsr vram_AAYY_to_A
     sta multi2
 
     ; check if lower-nybble should be transparent (rightmost pixel in byte)
@@ -811,15 +815,28 @@ vms
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
+    lda vms_block_source
+    clc
+    adc #1
+    sta vms_block_source
+    bcc .vms_check_more
+    inc vms_block_source+1
+
     ; check for more vms parameters
 .vms_check_more
     ldx arg_loop
     dex
     ;stx arg_loop is done at -
-    beq ++
+    beq .vms_done
     jmp .vms_arg_loop
 
-++  rts
+.vms_invalid
+    jsr k_primm
+    !pet "invalid vms command"
+    !byte 0
+
+.vms_done
+    rts
 
 !zone transfer_stuff
 
@@ -1273,7 +1290,7 @@ vcl
     jsr vmw_execute
 
     dec arg3
-    beq .vcl_next_command      ; if no more repitions, go to end of command
+    beq .vcl_next_command      ; if no more repetitions, go to end of command
 
     clc
     lda arg1
@@ -1370,3 +1387,5 @@ arg_charset_size    !byte 0 ; the product of width*height. used to calculate off
 vmp_length          !byte 0 ; length of the text to print
 
 vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
+
+vms_block_source          !word 0;
