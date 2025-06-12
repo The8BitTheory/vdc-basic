@@ -737,12 +737,7 @@ vms
     ; load sprite-part into A
     sty offset_1
     lda vms_block_source+1
-    pha
-    tax
-    lda vms_block_source
-    pha
-    tay
-    txa
+    ldy vms_block_source
     jsr vram_AAYY_to_A
     sta multi1
 
@@ -799,28 +794,16 @@ vms
     jsr A_to_vram_XXYY
 
     ; increase block-copy (regs 32/33) source by 1 (because we wrote that 1 byte manually)
-    pla         ;pull LB from stack (for reg 33)
-    tax
-    pla         ;pull HB from stack (for reg 32)
-    sta multi1  ;used as temporary variable here
-    txa
-
-    clc
-    adc #1
-    tay
-    bcc +
-    inc multi1
-
-+   lda multi1
-    ldx #32
-    jsr AY_to_vdc_regs_Xp1
-
     lda vms_block_source
     clc
     adc #1
     sta vms_block_source
-    bcc .vms_check_more
+    tay
+    bcc +
     inc vms_block_source+1
++   lda vms_block_source+1
+    ldx #32
+    jsr AY_to_vdc_regs_Xp1
 
     ; check for more vms parameters
 .vms_check_more
@@ -1389,3 +1372,4 @@ vmp_length          !byte 0 ; length of the text to print
 vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
 
 vms_block_source          !word 0;
+
