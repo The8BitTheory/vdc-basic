@@ -724,7 +724,7 @@ vms
     jmp .vms_check_more
 
 ;--------- OR value
-++  cmp #2  ;or-value
+++  cmp #8  ;or-value
     beq +
     jmp .vms_invalid
 
@@ -1364,4 +1364,5 @@ vmp_length          !byte 0 ; length of the text to print
 vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
 
 vms_block_source          !word 0;
+
 
