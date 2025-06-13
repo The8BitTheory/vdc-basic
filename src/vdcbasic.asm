@@ -667,18 +667,14 @@ vms
     iny
     ldx #$3f        ;bank 1
     jsr k_fetch
-    
-    ; X holds the nr of commands to execute
-    tax
-    iny
+    sta arg_loop
 
+    iny
     sty offset_1
 
     ;add target-offset to vram-target address    
     ;will need to be made ready for indfet later, I guess
 .vms_arg_loop
-    stx arg_loop
-
     ldy offset_1
 
     ; read vms-command byte (1=block copy with target-addr-increase and length, 2=OR with target-addr increase (length implicitly 1))
@@ -764,7 +760,7 @@ vms
 
     ; check if lower-nybble should be transparent (rightmost pixel in byte)
     lda #%00001111
-    and multi1
+    and multi1      ; remove left pixel from foreground (multi1)
     cmp vms_alpha
     bne +
 
@@ -776,9 +772,7 @@ vms
     jmp ++
 
     ; make left pixel transparent
-+   lda #%00001111
-    and multi1      ; remove left pixel from foreground (multi1)
-    sta multi1
++   sta multi1
     lda #%11110000
 
 ++  and multi2      ; remove pixel from background (multi2)  
@@ -807,9 +801,7 @@ vms
 
     ; check for more vms parameters
 .vms_check_more
-    ldx arg_loop
-    dex
-    ;stx arg_loop is done at -
+    dec arg_loop
     beq .vms_done
     jmp .vms_arg_loop
 
