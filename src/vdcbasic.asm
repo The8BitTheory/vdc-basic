@@ -681,10 +681,16 @@ vms
     lda (arg_address),y
     iny
 
-;------- block copy
-    cmp #1  ;block copy
-    bne ++
+    cmp #1
+    beq .vms_block_copy_1
+    cmp #2
+    beq .vms_block_copy_2
+    cmp #8
+    beq .vms_rgo
+    jmp .vms_invalid
 
+;------- block copy
+.vms_block_copy_1
     jsr remember_mem_conf   ;also sets mmu to block 0
     clc
     lda (arg_address),y
@@ -720,15 +726,42 @@ vms
     sty arg4
 
     ;execute vmc
+    jmp .vms_block_copy_execute
+
+.vms_block_copy_2
+    jsr remember_mem_conf   ;also sets mmu to block 0
+    clc
+    lda (arg_address),y
+    sta arg3
+    iny
+
+    lda (arg_address),y
+    sta arg3+1
+    iny
+
+    ;read word 2 -> set arg3
+    lda (arg_address),y
+    sta arg4
+    iny
+
+    lda (arg_address),y
+    sta arg4+1
+    iny
+    sty offset_1
+
+    ldx #1
+    jsr vdc_reg_X_to_A
+    sta arg5
+
+.vms_block_copy_execute
+    ;execute vmc
     jsr block_copy_target
     jmp .vms_check_more
 
-;--------- OR value
-++  cmp #8  ;or-value
-    beq +
-    jmp .vms_invalid
 
-+   jsr io_on
+;--------- OR value
+.vms_rgo
+    jsr io_on
 
     ; load sprite-part into A
     sty offset_1
