@@ -31,14 +31,14 @@
 ; Juni 2025      introducing decrements for VMC source and target addresses
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
-!macro message {!pet "vdc basic v2f installed"}
+!macro message {!pet "vdc basic v2g installed"}
 
-  !to "vdcbasic2f.bin", cbm
+  !to "vdcbasic2g.bin", cbm
 
   !source <6502/std.a>    ; for +bit16
   !source <6502/opcodes.a>  ; for AND/ORA self-mods
   !source <cbm/c128/kernal.a> ; for k_primm
-  !source "./src/vdclib.asm"  ; macros and code parts
+  !source "./src/vdclib.a"  ; macros and code parts
 
 ;build params
 release_vdl = 0
@@ -210,7 +210,7 @@ instruction_strings
     !pet "rsT", "syN"
     !pet "disP", "attR", "crsR"
     !pet "vcS", "vmP", "zzZ", "vcL"
-    !pet "vmS"
+    !pet "vmS", "vmB"
 !if release_vdl {    
     !pet "vdL"
 }
@@ -229,7 +229,7 @@ instruction_ptrs
     !word rst - 1, syn - 1
     !word disp - 1, attr - 1, crsr - 1
     !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
-    !word vms -1
+    !word vms -1, vmb -1
 !if release_vdl {
     !word vdl -1
 }
@@ -728,6 +728,8 @@ vms
     ;execute vmc
     jmp .vms_block_copy_execute
 
+; command 2 is intended as a single-use command for now.
+;  it is intended to be used for square, non-transparent sprites.
 .vms_block_copy_2
     jsr remember_mem_conf   ;also sets mmu to block 0
     clc
@@ -1036,9 +1038,34 @@ reset_vdc_registers
 
 !zone print_to_vdc {
 
+vmb
+;parse target address (where to render the text to)
+    jsr b_parse_uint16
+    sty arg_address
+    sta arg_address + 1
+
+;parse location of string in bank 0
+    jsr b_skip_comma
+
+    jsr b_parse_uint16
+    sty $24
+    sta $25
+
+;parse  length of string
+    jsr b_skip_comma
+
+    jsr b_parse_uint8_to_X
+    stx vmp_length
+
+    lda #$3f
+    sta vmp_bank
+
+    jmp vmp_prepare
+
 ; todo: check all parameter values that are passed to VMC_execute.
 ;       and compare them to the basic execution to print text
 vmp
+    
     ;parse target address (where to render the text to)
     jsr b_parse_uint16
     sty arg_address
@@ -1057,15 +1084,18 @@ vmp
     sta $4
     jsr $02cd ;jsrfar
 
-    ;$877b writes string address to $24/$25
-    
-    ; prepare for indirect FETCH
-    lda #$24
-    sta $02aa
-
     ;$877b writes string length to A, which is stored to $6 by JSRFAR
     lda $6
     sta vmp_length
+
+    lda #$7f
+    sta vmp_bank
+
+vmp_prepare
+    ;parse_string ($877b) writes string address to $24/$25
+    ; prepare for indirect FETCH
+    lda #$24
+    sta $02aa
 
     ;arg3(count16) is not changed in VMC, so we can set it here already
     lda arg_charset_width
@@ -1075,12 +1105,12 @@ vmp
     ;read virtual screen width from register 1 and store it in arg5 (arg4 would work, too. but for VMC it's arg5 anyways)
     ;  we could do this in VCS as well. but that would require another persistent byte.
     ;  it's sufficiently fast here, I guess
-    ldx #1
-    jsr vdc_reg_X_to_A
+    lda arg_screen_width
     sta arg5
 
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,
     ; iterate over characters - from 0 to arg3-1
+
     
     ldy #0
     sty offset_1      ;keeps track of current character position we're iterating
@@ -1094,7 +1124,7 @@ vmp
     ;lda (arg2),y   ;not this. we need to use FETCH
 .vmp_next_character
     ldy offset_1
-    ldx #$7f        ;bank 1
+    ldx vmp_bank        ;bank 1
     jsr k_fetch
     inc offset_1
 
@@ -1171,8 +1201,22 @@ vcs
     lda arg3
     sta arg_charset_height
 
+    jsr chrgot
+    beq +
+
+;   screen-width parameter found, read it
+    jsr b_skip_comma
+    jsr b_parse_uint8_to_X
+    stx arg_screen_width
+    jmp ++
+
+;   no screen-width parameter found, pull it from the vdc-register    
++   ldx #1
+    jsr vdc_reg_X_to_A
+    sta arg_screen_width
+
     ;calc size of each character in bytes (width*height)
-    lda #0
+++  lda #0
     ldy arg_charset_height
 
     clc
@@ -1391,11 +1435,12 @@ arg_charset_address !word 0 ; the address in VRAM where the character set is sto
 arg_charset_width   !byte 0 ; width in bytes of one character
 arg_charset_height  !byte 0 ; height in scanlines of one character
 arg_charset_size    !byte 0 ; the product of width*height. used to calculate offset of character in charset
+arg_screen_width    !byte 0 ; the number of bytes in a scanline. can be eg 160 for printing with empty lines in between
 
 vmp_length          !byte 0 ; length of the text to print
 
 vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
 
-vms_block_source          !word 0;
-
+vms_block_source    !word 0;
+vmp_bank            !byte 0
 
