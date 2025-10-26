@@ -28,7 +28,11 @@
 ; v2e
 ; 23 Mai 2025   introducing VMP and VCS: Print and Print-Setup commands
 ; v2f
-; Juni 2025      introducing decrements for VMC source and target addresses
+; Juni 2025     introducing decrements for VMC source and target addresses
+; v2g
+; October 2025  introducing vmb (vmp with fixed string-address)
+;               additional parameter for vcs to set screen-width
+;               vmp now handles zero-length strings correctly (don't print anything)
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v2g installed"}
@@ -1086,6 +1090,7 @@ vmp
 
     ;$877b writes string length to A, which is stored to $6 by JSRFAR
     lda $6
+    beq .vmp_done
     sta vmp_length
 
     lda #$7f
