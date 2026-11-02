@@ -2,6 +2,15 @@
 
 !source <cbm/c128/vdc.a>
 
+; code that runs with $ff00 = 0 ("ROMs and I/O") sees BASIC ROM at $4000-$bfff.
+; when vdclib is embedded in a program instead of running as a BASIC extension,
+; place this after such code to make sure it was assembled below $4000.
+!macro vdclib_assert_below_basic_rom {
+	!if * > $4000 {
+		!error "code running with BASIC ROM banked in must end below $4000, but ends at ", *
+	}
+}
+
 ; check VRAM capacity
 !macro addcode_vdc_check_capacity {
 	!ifndef vdc_check_capacity {vdc_check_capacity}
@@ -180,6 +189,9 @@ vdc_data_to_A ; read currently selected VDC register to A
 			inc VDC_RAM_READPTR + 1
 		}
 		jmp .back
+		!if VDCLIB_OPTION_BANKING {
+			+vdclib_assert_below_basic_rom
+		}
 	}
 }
 
@@ -235,5 +247,8 @@ vdc_data_to_A ; read currently selected VDC register to A
 			inc VDC_RAM_WRITEPTR + 1
 		}
 		jmp .back
+		!if VDCLIB_OPTION_BANKING {
+			+vdclib_assert_below_basic_rom
+		}
 	}
 }

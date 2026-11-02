@@ -508,6 +508,7 @@ complex_instruction_shared_exit ; restore memory configuration
 .cr = * + 1:  lda #MODIFIED8
     sta $ff00
     rts
+    +vdclib_assert_below_basic_rom  ; reached from rtv and vtr with BASIC ROM banked in
 
 !zone fill_and_copy
 
@@ -888,6 +889,7 @@ rtv ; copy RAM to VRAM
     jsr rtv_vtr_swp_shared_setup
     jsr ram_to_vram
     jmp complex_instruction_shared_exit
+    +vdclib_assert_below_basic_rom
 
 !zone VRAM_to_RAM
 
@@ -898,6 +900,7 @@ vtr ; copy VRAM to RAM
     jsr rtv_vtr_swp_shared_setup
     jsr vram_to_ram
     jmp complex_instruction_shared_exit
+    +vdclib_assert_below_basic_rom
 
 
 !zone exchange_RAM_and_VRAM
@@ -980,7 +983,7 @@ vcc ; copy charset from RAM to VRAM
 +     ; set loop counter (TODO - make bytes per character an optional parameter?)
       lda #8  ; character size
       sta arg3 + 1
-      ldx #0  ; ROMs and I/O
+      ldx #%00001110  ; kernal and I/O, but RAM instead of BASIC ROM, so vcc also works above $4000
       ; loop to copy a single character pattern
 --        ; read byte from RAM
         sta $ff01 ; full RAM (A is dummy)
@@ -989,7 +992,7 @@ vcc ; copy charset from RAM to VRAM
         iny
         beq .fix_hi
 .back       ; write byte to VRAM
-        stx $ff00 ; ROMs and I/O
+        stx $ff00 ; kernal and I/O
         +vdc_sta
         ; check whether done with this char
         dec arg3 + 1
