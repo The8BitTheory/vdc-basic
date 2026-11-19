@@ -1219,7 +1219,8 @@ vcs
     jmp ++
 
 ;   no screen-width parameter found, pull it from the vdc-register    
-+   ldx #1
++   jsr io_on               ; I/O may be banked out after parsing; reading $d600/$d601 would hit RAM ($ff)
+    ldx #1
     jsr vdc_reg_X_to_A
     sta arg_screen_width
 
