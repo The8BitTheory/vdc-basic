@@ -1270,6 +1270,8 @@ vcl
 
     ldy #0
     sty offset_1
+    lda $ff00               ; remember caller's memory configuration once for the whole list
+    sta vcl_saved_cr
 
 .vcl_next_command
     jsr remember_mem_conf
@@ -1311,7 +1313,13 @@ vcl
     
     cpx arg_loop
     bne -
-    
+
+    ; commands without repetition parameter (1, 4): args were cleared, so treat 0 repetitions as 1
+    lda arg4
+    ora arg4 + 1
+    bne +
+    inc arg4
++
     ; VMC (1-3)
     lda #3
     cmp vcl_command_id
@@ -1323,7 +1331,6 @@ vcl
 +   lda #5
     cmp vcl_command_id
     bmi +
-    jsr remember_mem_conf
     ldy arg3
     jsr vmf_execute
     jmp .vcl_next_command
@@ -1368,10 +1375,11 @@ vcl
     jsr k_primm
     !pet "invalid"
     !byte 0
-    rts
 
 .vcl_done
-    jmp complex_instruction_shared_exit
+    lda vcl_saved_cr        ; restore caller's memory configuration (commands may have changed .cr)
+    sta $ff00
+    rts
 
 }
 
@@ -1447,6 +1455,7 @@ arg_screen_width    !byte 0 ; the number of bytes in a scanline. can be eg 160 f
 
 vmp_length          !byte 0 ; length of the text to print
 
+vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
 vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
 
 vms_block_source    !word 0;
