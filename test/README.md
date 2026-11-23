@@ -3,7 +3,8 @@
 Each `.bas` file is a BASIC 7.0 listing that loads `vdcbasic2h.bin`, checks one behaviour by reading VRAM back with `VMD`, and reports the result as an exit code through the VICE debug cartridge (`POKE $D7FF`; 0 = pass, 200 + n = BASIC error n).
 
 ```
-test/run.sh test/*.bas
+test/run.sh test/*.bas                           # behaviour tests
+test/run.sh -l -d docs/img docs/listings/*.bas    # the listings of the guide, with screenshots
 ```
 
 Needs `x128` and `c1541` from VICE and Python 3. `bastok.py` tokenises the listings using the keyword table in `BASIC V7.0 VDC.txt`. The runs are headless and in warp mode; the cycle limit is only a guard against hangs.

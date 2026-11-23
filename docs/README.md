@@ -10,7 +10,10 @@ This guide is being written. What exists so far:
 | [Command reference](reference/commands.md) | Complete for v2h |
 | [VCL list format](reference/vcl-format.md) | Complete |
 | [VMS list format](reference/vms-format.md) | Complete |
-| Guided tour, chapters 1–14 | Not written yet |
+| [1. First contact](01-first-contact.md) | Written |
+| [2. Two memories](02-two-memories.md) | Written |
+| [3. The chip does the work](03-the-chip-does-the-work.md) | Written |
+| Chapters 4–14 | Not written yet |
 | Browser tools (picture, sprite and font conversion) | Not written yet |
 
-The examples in the reference are checked by the listings in [`test/`](../test/README.md).
+The listings of the chapters are in [`listings/`](listings/). They are copied into the text by `listings/sync.py` and run by `test/run.sh -l -d docs/img docs/listings/*.bas`, which also takes the screenshots. The examples in the reference and statements made in the text are checked by the listings in [`test/`](../test/README.md).
