@@ -630,7 +630,8 @@ block_copy_target
 ; Video Memory Sprite-Copy. Like VMC with a mix of VCL.
 ; vram-source is read continuously, target address can have gaps (used for transparency)
 ; effectively executes a number of VMC calls
-; parameters: vram-source, vram-target, address of command-bytes (target-increment, nr bytes to copy). first command-byte holds number of commands
+; parameters: vram-source, vram-target, address of command list (bank 0).
+; list: alpha value (byte), number of commands (word), then the commands. Lists may be longer than 256 bytes.
 vms
     ;jsr complex_instruction_parse3args
     jsr complex_instruction_shared_entry
@@ -668,22 +669,37 @@ vms_execute
     sta $02aa
 
     ldy #0
-    ldx #$3f        ;bank 1
+    ldx #$3f        ;bank 0, all RAM
     jsr k_fetch
     sta vms_alpha 
 
     iny
-    ldx #$3f        ;bank 1
+    ldx #$3f
     jsr k_fetch
-    sta arg_loop
+    sta arg_loop    ; number of commands, low byte
+
+    iny
+    ldx #$3f
+    jsr k_fetch
+    sta vms_count_hi ; number of commands, high byte
 
     iny
     sty offset_1
+    ora arg_loop
+    bne .vms_arg_loop
+    rts             ; no commands
 
     ;add target-offset to vram-target address    
     ;will need to be made ready for indfet later, I guess
 .vms_arg_loop
-    ldy offset_1
+    clc             ; move the list pointer past the bytes read so far: offset_1 stays small
+    lda offset_1
+    adc arg_address
+    sta arg_address
+    bcc +
+    inc arg_address + 1
++   ldy #0
+    sty offset_1
 
     ; read vms-command byte (1=block copy with target-addr-increase and length, 2=OR with target-addr increase (length implicitly 1))
     lda (arg_address),y
@@ -842,9 +858,14 @@ vms_execute
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
-    ; check for more vms parameters
+    ; check for more vms parameters (16-bit count)
 .vms_check_more
-    dec arg_loop
+    lda arg_loop
+    bne +
+    dec vms_count_hi
++   dec arg_loop
+    lda arg_loop
+    ora vms_count_hi
     beq .vms_done
     jmp .vms_arg_loop
 
@@ -1486,6 +1507,7 @@ arg_screen_width    !byte 0 ; the number of bytes in a scanline. can be eg 160 f
 vmp_length          !byte 0 ; length of the text to print
 
 vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
+vms_count_hi        !byte 0     ; VMS: number of commands, high byte
 vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,0,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8-11 not implemented, 12 = vms
 
 vms_block_source    !word 0;
