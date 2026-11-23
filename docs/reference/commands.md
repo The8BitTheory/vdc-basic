@@ -19,7 +19,17 @@ Everything stated here was either checked by a listing in `test/` or read direct
 
 All numeric parameters are ordinary BASIC expressions. A value outside its range gives `?ILLEGAL QUANTITY ERROR`.
 
+### 16 KiB and 64 KiB
+
 With 16 KiB VRAM, addresses 16384–65535 mirror the lower 16 KiB.
+
+A VDC with 64 KiB also starts out addressing only 16 KiB. To reach all of it, set bit 4 of register 28:
+
+```
+RGO 28,16
+```
+
+Do this before you put anything into VRAM. The switch changes how the chip addresses its memory, so on real hardware the existing content, including the character set, no longer appears where it was; reload the character set with `RST 2` if you stay in text mode. `RST 1` clears the bit again. `RGD(255)` reports the installed size whatever the bit says.
 
 ## Loading
 

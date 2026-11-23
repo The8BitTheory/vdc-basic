@@ -1,6 +1,7 @@
 # The worked examples of docs/reference/vcl-format.md and vms-format.md. Needs 64 KiB VRAM.
 1 trap 9000
 2 bload"vdcbasic2h",b0,u8:sys dec("1300")
+5 rgo 28,16:rem address all 64 KiB
 10 a=dec("4000"):bank 0
 20 for i=0 to 18:read b:poke a+i,b:next
 30 data 4, 0,0, 0,0, 64,31
