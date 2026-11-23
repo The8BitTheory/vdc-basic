@@ -4,7 +4,8 @@
 # usage: test/run.sh [-l] [-d dir] file.bas ...
 #   -l      book listing: the file has no test code of its own. It is wrapped so that
 #           reaching its end reports 0 and a BASIC error n reports 200 + n.
-#   -d dir  save a screenshot of the 80-column screen at exit as dir/<name>.png
+#   -d dir  save a screenshot of the 80-column screen at exit as dir/<name>.png,
+#           doubled in height because VDC pixels are twice as high as wide (needs Pillow)
 #
 # A test listing ends itself with  BANK 15:POKE DEC("D7FF"),code  (0 = pass).
 # Nothing here waits for a fixed time; the cycle limit is only a guard against hangs.
@@ -35,10 +36,18 @@ for f in "$@"; do
     python3 "$HERE/bastok.py" "$src" "$WORK/t.prg" || exit 2
     shot=
     [ -n "$SHOTDIR" ] && shot="$SHOTDIR/$(basename "$f" .bas).png"
-    x128 -default -warp -sounddev dummy -debugcart -80col -VDC64KB \
-        +drive8truedrive -trapdevice8 -8 "$WORK/t.d64" -autostartprgmode 1 -autostart "$WORK/t.prg" \
-        -limitcycles ${LIMIT:-200000000} ${shot:+-exitscreenshot "$shot"} >"$WORK/log.txt" 2>&1
-    rc=$?
-    if [ $rc -eq 0 ]; then echo "PASS  $f"; else echo "FAIL  $f (exit $rc)"; fail=1; fi
+    try=0
+    while :; do
+        x128 -default -warp -sounddev dummy -debugcart -80col -VDC64KB \
+            +drive8truedrive -trapdevice8 -8 "$WORK/t.d64" -autostartprgmode 1 -autostart "$WORK/t.prg" \
+            -limitcycles ${LIMIT:-200000000} ${shot:+-exitscreenshot "$shot"} >"$WORK/log.txt" 2>&1
+        rc=$?
+        # 143 = the emulator was killed from outside (e.g. another test run on this machine): try again
+        try=$((try + 1))
+        [ $rc -eq 143 ] && [ $try -lt 4 ] || break
+    done
+    # the VDC's pixels are twice as high as wide: double the height of the screenshot
+    [ -n "$shot" ] && [ -f "$shot" ] && python3 -c 'import sys; from PIL import Image; i=Image.open(sys.argv[1]); i.resize((i.width, i.height*2), Image.NEAREST).save(sys.argv[1], optimize=True)' "$shot"
+    if [ $rc -eq 0 ]; then echo "PASS  $f"; else echo "FAIL  $f (exit $rc)"; tail -4 "$WORK/log.txt" | sed "s/^/      /"; fail=1; fi
 done
 exit $fail
