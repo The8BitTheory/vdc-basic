@@ -103,7 +103,7 @@ Once a screen is a list, new things become easy.
 
 **Save it.** A list is a block of memory. `BSAVE "ROOM",B0,P(L) TO P(A+1)` writes it to disk, and the next time the program loads it instead of building it. Levels can be files.
 
-**Keep several.** One list per room, per menu, per kind of wall. Showing something is one `VCL` with the right address. The dungeon view of a role-playing game is a classic case: each wall piece at each distance is a few blits, and what is visible from where the player stands decides which lists are run, back to front.
+**Keep several.** One list per room, per menu, per kind of wall. Showing something is one `VCL` with the right address. The view of a first-person dungeon game is a natural case: each wall piece at each distance is a few blits, and what is visible from where the player stands decides which lists are run, back to front.
 
 **Mix commands.** A list can clear a page, lay the tiles, draw the frame around the status display and place three sprites, in one go.
 

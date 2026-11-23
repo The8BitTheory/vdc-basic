@@ -1,6 +1,6 @@
 # VDC-BASIC Programmer's Guide: draft outline
 
-Status: draft for discussion; chapter texts are not written yet. The decisions table below is agreed.
+Status: the plan the guide was written from. All chapters exist as a first draft; where a chapter differs from this outline, the chapter is right.
 Basis: branch `v2g`, version v2h of `src/vdcbasic.asm`.
 
 ## 1. What this guide is
