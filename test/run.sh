@@ -7,6 +7,8 @@
 #           A listing that waits for a key does so with  GETKEY K$ ; in the test the
 #           first such statement ends the run instead, so the screenshot shows the
 #           picture the reader sees while the program waits.
+#           If a file NAME.keys exists next to NAME.bas, its characters are fed to
+#           the GETKEY statements one by one, and the run ends when they are used up.
 #           The files in docs/listings/data are on the disk.
 #   -d dir  save a screenshot of the 80-column screen at exit as dir/<name>.png,
 #           doubled in height because VDC pixels are twice as high as wide (needs Pillow)
@@ -36,7 +38,14 @@ for f in "$@"; do
         src=$WORK/wrapped.bas
         {
             echo '0 trap 63998'
-            sed 's/GETKEY K\$/SYN:SYN:BANK 15:POKE DEC("D7FF"),0/' "$f"
+            keys=${f%.bas}.keys
+            if [ -f "$keys" ]; then
+                sed 's/GETKEY K\$/GOSUB 63990/' "$f"
+                echo "63990 KQ=KQ+1:K\$=MID\$(\"$(cat "$keys")\",KQ,1):IF K\$<>\"\" THEN RETURN"
+                echo '63991 SYN:SYN:BANK 15:POKE DEC("D7FF"),0'
+            else
+                sed 's/GETKEY K\$/SYN:SYN:BANK 15:POKE DEC("D7FF"),0/' "$f"
+            fi
             echo '63996 syn:syn'
             echo '63997 bank 15:poke dec("d7ff"),0:end'
             echo '63998 bank 15:poke dec("d7ff"),200+er'

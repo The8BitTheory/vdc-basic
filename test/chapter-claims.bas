@@ -17,6 +17,12 @@
 240 next:if vmd(0)<>1 then 8995
 250 rem chapter 8: syn with register pairs sets the attribute start like attr
 260 r=6:q=24000:syn 20,q/256,21,q and 255:if rgd(20)<>93 or rgd(21)<>192 then 8995
+300 rem chapter 11: save a rectangle packed, overwrite it, put it back
+310 for i=0 to 3:vmf 2100+i*80,i+1,4:next:vmf 3000,0,16
+320 vmc 2100,3000,4,4,4,80
+330 r=7:if vmd(3000)<>1 or vmd(3004)<>2 or vmd(3015)<>4 then 8995
+340 vmf 2100,9,4,4,80:vmc 3000,2100,4,4,80
+350 r=8:if vmd(2100)<>1 or vmd(2183)<>2 or vmd(2343)<>4 then 8995
 8990 r=0
 8995 rst 3:print chr$(147):bank 15:poke dec("d7ff"),r:end
 9000 r=200+er:goto 8995

@@ -120,7 +120,7 @@ In the character set every character has 16 bytes: 8 rows of pattern and 8 unuse
 
 The second half of the character set, at `$3000`, has its characters in nearly the order `VMP` wants: capitals at 65 to 90, digits and punctuation at 32 to 63. So the font begins at character 32 of that set.
 
-There is one obstacle. The bitmap occupies VRAM up to 15999 and will overwrite the character set, which lies at 8192 to 16383. Line 60 carries the 96 characters to safety first: one `VMC` to address 20000. (Line 40 reloads the character set right after switching on the 64 KiB, as chapter 4 advised.)
+There is one obstacle. The bitmap occupies VRAM up to 15999 and will overwrite the character set, which lies at 8192 to 16383. Line 60 carries the 96 characters to safety first: one `VMC` to address 20000. (Line 40 reloads the character set right after switching on the 64 KiB, because that switch can leave what was in VRAM before in the wrong places.)
 
 Line 120 colours the first line of text through the attributes, without touching the letters.
 
