@@ -119,8 +119,14 @@ The guide collects the practical consequences in [chapter 13](docs/13-speed-and-
 | v2g | Oct 2025 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
 | v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0. Tests, guide and reference added. |
 
-Everything since v2 is by Goodwell (The 8-Bit Theory).
+## Credits
+
+- **Felix 'skOi!nk' Rosenhahn** wrote the original, "vdc-tool 2", around 1993.
+- **Mac Bacon** turned it into vdcbasic in 2013/2014: the cleaned-up and optimised code, the VDC library `vdclib.a`, and the commands listed above.
+- **Goodwell** (The 8-Bit Theory) has written everything since v2: the extended `VMC` and `VMF`, `VCS`, `VMP`, `VMB`, `VMS`, `VCL`, the tests and the documentation.
 
 ## License
 
-[MIT](LICENSE).
+The work of Goodwell in this repository, that is all code added since v2, the tests, the tools and the documentation, is released under the [MIT License](LICENSE).
+
+The parts that go back to Felix Rosenhahn and Mac Bacon were published without a license statement: the original was passed on from disk to disk in the 1990s, the re-release was posted in a public forum for everyone to use. They are included here in that spirit and with credit, but the MIT License cannot speak for them. If you are one of the two authors and would like this handled differently, please open an issue.
