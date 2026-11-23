@@ -40,6 +40,10 @@ The C128 can run its processor at twice the speed. The price is that the 40-colu
 
 Everything in which BASIC or the CPU has a share gets nearly twice as fast. Put `FAST` at the beginning of a program and `SLOW` at its end.
 
+### Compiling
+
+Since most of the time goes into BASIC interpreting statements, a compiler helps exactly where it hurts. The Blitz BASIC compiler for the C128 can compile programs that use VDC-BASIC.
+
 ## A budget for VRAM
 
 64 KiB is a lot until the second page, the clean background and three sheets have moved in. It pays to write the plan down before writing the program. For the 160 × 100 mode:

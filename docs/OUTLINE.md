@@ -210,7 +210,7 @@ Fixed layout per command: syntax, parameters with ranges, what it does, notes an
 
 ## 5. Points found in the source that the reference must state precisely
 
-These came up while reading `vdcbasic.asm` and differ from, or are missing in, `README.txt`. Each needs a decision or a test before it is written down.
+These came up while reading `vdcbasic.asm` and differ from, or were missing in, the `README.txt` of that time. Each needs a decision or a test before it is written down.
 
 1. `VMF` accepts repetitions and a target increment like `VMC`. The README does not mention it.
 2. `VMC`/`VMF`: if repetitions are given, the target increment is required. The separator before the increments is skipped without being checked for a comma.
