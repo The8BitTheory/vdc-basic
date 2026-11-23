@@ -26,7 +26,7 @@ This file is the technical view: what is in the repository, how to build and tes
 | `src/vdcbasic.asm` | The extension: BASIC hooks, parameter parsing, all commands |
 | `src/vdclib.a` | VDC access routines as ACME macros (register and VRAM access, block operations, RAM ↔ VRAM transfer). Usable without the BASIC part. |
 | `vdcbasic2h.bin` | Current binary, assembled from `src/` |
-| `vdcbasic.bin`, `vdcbasicac6.bin`, `vdcbasic2c.bin` | Older binaries, kept for existing programs: the 2013/2014 release for `$1300` and for `$0AC6`, and v2c for `$1300`. All three announce themselves as "V10". |
+| `vdcbasic.bin`, `vdcbasicac6.bin`, `vdcbasic2c.bin` | Binaries of earlier versions |
 | `BASIC V7.0 VDC.txt` | Keyword and token table: a BASIC dialect file for RetroDevStudio / C64 Studio, also read by `test/bastok.py` |
 | `docs/` | The guide, the reference, listings, screenshots, source pictures, converter |
 | `test/` | Tokeniser, emulator test runner, behaviour tests |
@@ -89,7 +89,13 @@ The tests cover the behaviour the reference describes, the worked examples of th
 
 ## Compiling programs
 
-Programs that use VDC-BASIC can be compiled with the Blitz BASIC compiler for the C128.
+Programs that use VDC-BASIC can be compiled with the Blitz BASIC compiler for the C128. The only requirement is that every VDC-BASIC instruction is prefixed with two colons:
+
+```
+100 ::VMC SH,P+Y*80+X,W,H,80
+```
+
+To the interpreter the two colons are empty statements, so the same source also runs uncompiled.
 
 ## Known limits
 
@@ -110,7 +116,11 @@ The guide collects the practical consequences in [chapter 13](docs/13-speed-and-
 | v2d | Feb 2024 | `VMC`: source step |
 | v2e | May 2025 | `VCS` and `VMP`: text in bitmap modes |
 | v2f | Jun 2025 | `VMC`: negative steps |
-| v2g | Oct 2025 – Nov 2026 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
+| v2g | Oct 2025 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
 | v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0. Tests, guide and reference added. |
 
-Versions v2c and later are by Goodwell (The 8-Bit Theory).
+Everything since v2 is by Goodwell (The 8-Bit Theory).
+
+## License
+
+[MIT](LICENSE).

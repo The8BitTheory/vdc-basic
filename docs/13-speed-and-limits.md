@@ -42,7 +42,14 @@ Everything in which BASIC or the CPU has a share gets nearly twice as fast. Put 
 
 ### Compiling
 
-Since most of the time goes into BASIC interpreting statements, a compiler helps exactly where it hurts. The Blitz BASIC compiler for the C128 can compile programs that use VDC-BASIC.
+Since most of the time goes into BASIC interpreting statements, a compiler helps exactly where it hurts. The Blitz BASIC compiler for the C128 can compile programs that use VDC-BASIC. It asks for one thing: every VDC-BASIC instruction must have two colons in front of it.
+
+```
+100 ::VMC SH,P+Y*80+X,W,H,80
+110 IF K$="L" THEN ::VMF P,0,8000
+```
+
+The interpreter reads the two colons as two empty statements and ignores them, so a program written this way runs both compiled and uncompiled. If you think you may compile a program one day, write the colons from the start.
 
 ## A budget for VRAM
 

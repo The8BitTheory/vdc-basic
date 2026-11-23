@@ -23,6 +23,11 @@
 330 r=7:if vmd(3000)<>1 or vmd(3004)<>2 or vmd(3015)<>4 then 8995
 340 vmf 2100,9,4,4,80:vmc 3000,2100,4,4,80
 350 r=8:if vmd(2100)<>1 or vmd(2183)<>2 or vmd(2343)<>4 then 8995
+400 rem chapter 13: instructions prefixed with two colons run in the interpreter
+410 vmf 2100,0,8:::vmw 2100,7
+420 r=9:if vmd(2100)<>7 then 8995
+430 if r=9 then ::vmf 2101,5,2
+440 r=10:if vmd(2102)<>5 then 8995
 8990 r=0
 8995 rst 3:print chr$(147):bank 15:poke dec("d7ff"),r:end
 9000 r=200+er:goto 8995
