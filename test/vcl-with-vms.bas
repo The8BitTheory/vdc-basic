@@ -1,6 +1,6 @@
 # VCL: a VMS entry (type 12) with its list above $4000, followed by a VMW entry
 1 trap 9000
-2 bload"vdcbasic2g",b0,u8:sys dec("1300")
+2 bload"vdcbasic2h",b0,u8:sys dec("1300")
 10 a=dec("5000"):l=dec("6000"):bank 0
 20 for i=0 to 6:read b:poke l+i,b:next
 30 data 0, 1,0, 1,0,0,3

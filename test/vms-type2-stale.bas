@@ -1,6 +1,6 @@
 # VMS entry type 2 after a VMC with negative increments
 1 trap 9000
-2 bload"vdcbasic2g",b0,u8:sys dec("1300")
+2 bload"vdcbasic2h",b0,u8:sys dec("1300")
 10 a=dec("3000"):bank 0
 20 for i=0 to 7:read b:poke a+i,b:next
 30 data 0, 1,0, 2, 2,0, 2,0

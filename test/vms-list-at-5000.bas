@@ -1,6 +1,6 @@
 # VMS: list at $5000 in bank 0, entry types 1 and 8
 1 trap 9000
-2 bload"vdcbasic2g",b0,u8:sys dec("1300")
+2 bload"vdcbasic2h",b0,u8:sys dec("1300")
 10 a=dec("5000"):bank 0
 20 read n:for i=0 to n-1:read b:poke a+i,b:next
 30 data 10, 5, 2,0, 1,0,0,3, 8,3,0

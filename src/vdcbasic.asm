@@ -33,11 +33,15 @@
 ; October 2025  introducing vmb (vmp with fixed string-address)
 ;               additional parameter for vcs to set screen-width
 ;               vmp now handles zero-length strings correctly (don't print anything)
+; v2h
+; November 2026 vcl: lists longer than 256 bytes, command 7 keeps an increment of 0
+;               vms: list may lie above $4000, command 2 no longer inherits increments from vmc
+;               vmb: length 0 prints nothing
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
-!macro message {!pet "vdc basic v2g installed"}
+!macro message {!pet "vdc basic v2h installed"}
 
-  !to "vdcbasic2g.bin", cbm
+  !to "vdcbasic2h.bin", cbm
 
   !source <6502/std.a>    ; for +bit16
   !source <6502/opcodes.a>  ; for AND/ORA self-mods

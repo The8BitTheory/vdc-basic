@@ -1,7 +1,7 @@
 # VDC-BASIC Programmer's Guide: draft outline
 
 Status: draft for discussion; chapter texts are not written yet. The decisions table below is agreed.
-Basis: branch `v2g`, `src/vdcbasic.asm` (commit ec049bd).
+Basis: branch `v2g`, version v2h of `src/vdcbasic.asm`.
 
 ## 1. What this guide is
 
@@ -20,12 +20,13 @@ The guiding idea, stated early and repeated: VDC-BASIC does not draw lines and c
 |---|---|
 | Reader | Knows BASIC 7.0 well. Has never programmed the VDC. Does not need assembly. |
 | Hardware | Every example that needs 64 KiB VRAM says so at its top. |
-| Binary | `vdcbasic2g.bin`, load address `$1300`, built from `src/vdcbasic.asm` with ACME and checked in. |
-| Scope | The guide describes what the v2g code does, including its limits. |
+| Binary | `vdcbasic2h.bin`, load address `$1300`, built from `src/vdcbasic.asm` with ACME and checked in. |
+| Tooling | Converters the reader needs (picture → VRAM data, sprite → `VMS` list, font sheet) are part of the guide and run in a browser as a standalone HTML page. |
+| Scope | The guide describes what the v2h code does, including its limits. |
 | Main mode | 160×100 with 16 colours is the mode for anything animated. 640×200 is used for static pictures and for text on a single-colour background, where the attribute RAM rarely needs touching. |
 | Format | Markdown, one file per chapter under `docs/`, listings also as separate `.bas` files under `docs/listings/`. |
 | Listings | Every listing is run in VICE (`x128`, 80-column output) before it goes in; screenshots come from those runs. The tests are event driven (breakpoints through the remote monitor), never fixed waits. |
-| Running example | One project grows through the book and ends as a top-down room: a floor drawn from tiles, a figure with transparent pixels that walks around under keyboard control, things to pick up, a status line in a bitmap font. No view construction or other game maths, so the listing stays about VRAM. (Proposal, replaces the first-person dungeon.) |
+| Running example | One project grows through the book and ends as a top-down room: a floor drawn from tiles, a figure with transparent pixels that walks around under keyboard control, things to pick up, a status line in a bitmap font. No view construction or other game maths, so the listing stays about VRAM. Graphics come from the dungeon crawler jam material. |
 | Language | English first, structured so a German translation can mirror it file by file. |
 
 ## 2. Proposed file layout
@@ -43,7 +44,7 @@ docs/
     vms-format.md            sprite list byte layout
     tokens.md                token values, editor/toolchain setup
     vdc-registers.md         the registers this guide uses
-    history.md               versions v2c … v2g, what changed
+    history.md               versions v2c … v2h, what changed
   listings/                  .bas sources of all listings
   img/                       screenshots and diagrams
 ```
@@ -56,7 +57,7 @@ Each chapter entry lists: the goal, what is explained, the commands introduced, 
 
 **1. First contact**
 Goal: VDC-BASIC is loaded and one command visibly changes the 80-column screen.
-- What VDC-BASIC is, where it comes from (Rosenhahn 1993, Mac Bacon 2013, the v2c–v2g extensions).
+- What VDC-BASIC is, where it comes from (Rosenhahn 1993, Mac Bacon 2013, the v2c–v2h extensions).
 - Loading and starting: `BLOAD`, `SYS`, the install message, the two load addresses.
 - The memory configuration it expects (`BANK`, where your own data can live).
 - How to write programs with the new keywords: on the machine, and on a PC (RetroDevStudio/C64 Studio token file, building a disk image).
@@ -204,7 +205,7 @@ Fixed layout per command: syntax, parameters with ranges, what it does, notes an
 - VRAM maps: text mode default, 640×200 bitmap, chunky mode with two pages.
 - File formats written by the tools.
 - Messages (`invalid`, `invalid vms command`) and what causes them.
-- Version history v2c–v2g.
+- Version history v2c–v2h.
 - Zero-page and memory locations VDC-BASIC uses, for readers who mix in their own machine code.
 
 ## 5. Points found in the source that the reference must state precisely
@@ -223,12 +224,12 @@ These came up while reading `vdcbasic.asm` and differ from, or are missing in, `
 10. `VCC` always copies 8 bytes per character and skips 8.
 11. `DISP`, `ATTR`, `CRSR` accept 0–65535 only (open TODO in the source).
 12. `RTV`, `VTR`, `SWP` with count 0 transfer 65536 bytes; `VCC` with count 0 copies 256 characters.
-13. The source assembles to `$1300` and writes `vdcbasic2g.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2g, and the tools load `VDCBASIC2F.1300`. v2g is 2230 bytes (`$1300`–`$1BB5`), which leaves 75 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
+13. The source assembles to `$1300` and writes `vdcbasic2h.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2h, and the tools load `VDCBASIC2F.1300`. v2h is 2230 bytes (`$1300`–`$1BB5`), which leaves 75 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
 
 ## 6. Proposed order of work
 
 1. Agree on this outline and the open questions.
-2. Build a small test harness: tokenise a `.bas` listing with the VDC-BASIC keywords, put it on a disk image with the v2g binary, run it in `x128`, take a screenshot.
+2. Build a small test harness: tokenise a `.bas` listing with the VDC-BASIC keywords, put it on a disk image with the v2h binary, run it in `x128`, take a screenshot.
 3. Write the reference first. It forces every item in section 5 to be settled by test.
 4. Write the tour chapter by chapter, each with tested listings.
 5. Review pass for reading flow, then the German translation.

@@ -1,6 +1,6 @@
 # VMB with length 0 prints nothing
 1 trap 9000
-2 bload"vdcbasic2g",b0,u8:sys dec("1300")
+2 bload"vdcbasic2h",b0,u8:sys dec("1300")
 10 bank 0:poke dec("3000"),32
 20 vmf 2000,255,8:vmf 2100,0,300
 30 vcs 2000,1,1,80
