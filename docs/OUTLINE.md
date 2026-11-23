@@ -215,20 +215,15 @@ These came up while reading `vdcbasic.asm` and differ from, or are missing in, `
 2. `VMC`/`VMF`: if repetitions are given, the target increment is required. The separator before the increments is skipped without being checked for a comma.
 3. Repetitions are one byte; 0 behaves as 256.
 4. `VMC` source increment 0 or omitted means "source runs on contiguously". A source cannot be held still across repetitions.
-5. `VCL` type 7 (`VMW` with repetitions and increment) is marked "reserved" in the comment but there is code for it. Types 8–11 (`VMO`/`VMA`) and `$FF` (sleep) are listed in the comment and not implemented. The bank parameter in the comment does not exist; lists are read from RAM bank 0.
+5. `VCL` type 7 (`VMW` with repetitions and increment) is marked "reserved" in the comment but works. Types 8–11 (`VMO`/`VMA`) and `$FF` (sleep) are listed in the comment and not implemented. The bank parameter in the comment does not exist; lists are read from RAM bank 0.
 6. `VCL` type 6/7 take the value as a 16-bit field of which only the low byte is used.
-7. `VMS` entry type 2 copies a rectangle to the target address using the current R1 as row length; it takes no offset of its own. Needs a test to confirm intended use.
+7. `VMS` entry type 2 copies a rectangle to the target address using the current R1 as row length; it takes no offset of its own.
 8. `VMP` maps a character to glyph number `code − 32`, so codes below 32 are not printable, and it reads the string from bank 1; `VMB` reads from bank 0.
 9. `VCS` stores width × height in one byte, so a glyph is limited to 255 bytes.
 10. `VCC` always copies 8 bytes per character and skips 8.
 11. `DISP`, `ATTR`, `CRSR` accept 0–65535 only (open TODO in the source).
-12. `VCL` never advances its list pointer and indexes with one byte, so a list is limited to 256 bytes including the terminator. (`VMS` lists had the same limit until ec049bd.)
-13. `VMS` reads the entry type bytes, and all bytes of type 8 entries, with the BASIC ROM mapped in. From reading the code, a list at `$4000` or above should fail. To be confirmed by test.
-14. `VMS` entry type 2 does not set the high byte of the row increment or the source increment; both are left over from an earlier `VMC`.
-15. `VMB` with length 0 prints 256 characters. `VMP` with an empty string prints nothing.
-16. `VCL` type 7 turns an increment of 0 into 1.
-17. `RTV`, `VTR`, `SWP` with count 0 transfer 65536 bytes; `VCC` with count 0 copies 256 characters.
-18. The source assembles to `$1300` and writes `vdcbasic2g.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2g, and the tools load `VDCBASIC2F.1300`. v2g is 2184 bytes (`$1300`–`$1B87`), which leaves 121 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
+12. `RTV`, `VTR`, `SWP` with count 0 transfer 65536 bytes; `VCC` with count 0 copies 256 characters.
+13. The source assembles to `$1300` and writes `vdcbasic2g.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2g, and the tools load `VDCBASIC2F.1300`. v2g is 2230 bytes (`$1300`–`$1BB5`), which leaves 75 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
 
 ## 6. Proposed order of work
 
@@ -237,3 +232,15 @@ These came up while reading `vdcbasic.asm` and differ from, or are missing in, `
 3. Write the reference first. It forces every item in section 5 to be settled by test.
 4. Write the tour chapter by chapter, each with tested listings.
 5. Review pass for reading flow, then the German translation.
+
+## 7. Fixed in the code while preparing the guide
+
+Found by reading the source, confirmed by a failing test in `test/`, then fixed. The guide describes the fixed behaviour.
+
+| Command | Was | Now |
+|---|---|---|
+| `VCL` | Lists longer than 256 bytes wrapped around to their start. | No length limit. |
+| `VMS` | Entry bytes were read with the BASIC ROM mapped in, so a list at `$4000` or above failed. | The list is read from RAM bank 0 anywhere except `$D000`–`$DFFF`. |
+| `VMS` type 2 | Row and source increments were left over from an earlier `VMC`. | Row increment is R1, source runs on contiguously, target is the `VMS` target address. |
+| `VMB` | Length 0 printed 256 characters. | Prints nothing. |
+| `VCL` type 7 | An increment of 0 became 1. | 0 stays 0. |
