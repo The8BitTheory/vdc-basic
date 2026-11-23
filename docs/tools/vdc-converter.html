@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VDC-BASIC Converter</title>
+<style>
+  :root { --bg:#f4f2ee; --fg:#1d1d1b; --mut:#6a675f; --card:#fff; --line:#d8d4cb; --acc:#1f5fbf; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17181a; --fg:#e8e6e1; --mut:#9a978f; --card:#202224; --line:#383a3d; --acc:#7fb0ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  p.lead { color: var(--mut); margin: 0 0 20px; }
+  section { background: var(--card); border:1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 1rem; margin: 0 0 12px; }
+  label { display:block; margin: 8px 0 2px; font-size: .9rem; color: var(--mut); }
+  select, input[type=number], input[type=text] { font: inherit; padding: 6px 8px; border:1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 100%; max-width: 320px; }
+  .row { display:flex; flex-wrap:wrap; gap: 16px; }
+  .row > div { flex: 1 1 200px; }
+  button { font: inherit; padding: 8px 16px; border-radius: 6px; border:1px solid var(--acc); background: var(--acc); color: #fff; cursor:pointer; }
+  button:disabled { opacity:.4; cursor:default; }
+  canvas { image-rendering: pixelated; max-width: 100%; border:1px solid var(--line); background:#000; }
+  pre { background: var(--bg); border:1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x:auto; font-size: .85rem; margin: 8px 0 0; }
+  .err { color: #c0392b; }
+  .hint { font-size: .85rem; color: var(--mut); margin: 6px 0 0; }
+  .sw { display:inline-block; width: 14px; height: 14px; border:1px solid var(--line); vertical-align: -2px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main>
+<h1>VDC-BASIC Converter</h1>
+<p class="lead">Turns a picture into a file that a VDC-BASIC program can load. Everything happens in this page; no data leaves your computer.</p>
+
+<section>
+  <h2>1. Picture</h2>
+  <input type="file" id="file" accept="image/*">
+  <p class="hint">PNG, BMP or GIF in its final size. Colours are matched to the 16 VDC colours. The picture is not scaled.</p>
+</section>
+
+<section>
+  <h2>2. What should it become?</h2>
+  <div class="row">
+    <div>
+      <label for="mode">Kind of file</label>
+      <select id="mode">
+        <option value="picture">Picture or tile sheet, 160×100 mode</option>
+        <option value="sprite">Sprite with transparency (VMS), 160×100 mode</option>
+        <option value="font">Font sheet, 160×100 mode</option>
+        <option value="hires">Picture, 640×200 mode, two colours</option>
+      </select>
+    </div>
+    <div id="optKey">
+      <label for="key">Transparent colour</label>
+      <select id="key"></select>
+      <p class="hint">Pixels of this colour, and pixels that are transparent in the file, are left out.</p>
+    </div>
+    <div id="optCell">
+      <label for="cw">Character cell, width × height in pixels</label>
+      <div class="row"><input type="number" id="cw" value="6" min="2" step="2"><input type="number" id="ch" value="6" min="1"></div>
+      <p class="hint">The sheet is read cell by cell, left to right, top to bottom. The first cell is the space (code 32).</p>
+    </div>
+    <div id="optRow">
+      <label for="rowbytes">Bytes per screen row</label>
+      <input type="number" id="rowbytes" value="80" min="1" max="255">
+    </div>
+    <div id="optThr">
+      <label for="thr">Brightness threshold (0–255)</label>
+      <input type="number" id="thr" value="128" min="0" max="255">
+    </div>
+    <div>
+      <label for="name">File name</label>
+      <input type="text" id="name" value="picture" maxlength="16">
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>3. Result</h2>
+  <canvas id="preview" width="160" height="100"></canvas>
+  <p id="info" class="hint">No picture loaded.</p>
+  <p><button id="save" disabled>Save file</button></p>
+  <pre id="code" hidden></pre>
+</section>
+</main>
+
+<script id="core">
+/* Conversion core. Used by this page and by vdcconv.js on the command line. */
+const VDC = (function () {
+  // The 16 RGBI colours, index = VDC colour number
+  const PALETTE = [
+    [0,0,0],[85,85,85],[0,0,170],[85,85,255],[0,170,0],[85,255,85],[0,170,170],[85,255,255],
+    [170,0,0],[255,85,85],[170,0,170],[255,85,255],[170,85,0],[255,255,85],[170,170,170],[255,255,255]
+  ];
+  const NAMES = ['black','dark grey','dark blue','light blue','dark green','light green','dark cyan','light cyan',
+    'dark red','light red','dark purple','light purple','brown','yellow','light grey','white'];
+  const CLEAR = 255;   // marks a pixel that is transparent in the source file
+
+  // RGBA pixels -> one VDC colour number per pixel (CLEAR for transparent pixels)
+  function quantize(rgba, w, h) {
+    const out = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const r = rgba[i*4], g = rgba[i*4+1], b = rgba[i*4+2], a = rgba[i*4+3];
+      if (a < 128) { out[i] = CLEAR; continue; }
+      let best = 0, bd = 1e9;
+      for (let c = 0; c < 16; c++) {
+        const p = PALETTE[c], d = (r-p[0])**2 + (g-p[1])**2 + (b-p[2])**2;
+        if (d < bd) { bd = d; best = c; }
+      }
+      out[i] = best;
+    }
+    return out;
+  }
+
+  function px(idx, w, h, x, y, fill) {
+    if (x >= w || y >= h) return fill;
+    const c = idx[y*w + x];
+    return c === CLEAR ? fill : c;
+  }
+
+  // two pixels per byte: left pixel in the upper four bits
+  function packRows(idx, w, h, x0, y0, cw, chh, fill) {
+    const wb = Math.ceil(cw / 2), out = new Uint8Array(wb * chh);
+    for (let y = 0; y < chh; y++)
+      for (let b = 0; b < wb; b++)
+        out[y*wb + b] = (px(idx, w, h, x0 + b*2, y0 + y, fill) << 4) | px(idx, w, h, x0 + b*2 + 1, y0 + y, fill);
+    return out;
+  }
+
+  function file(parts) {
+    const n = parts.reduce((s, p) => s + p.length, 0), out = new Uint8Array(n + 2);
+    let o = 2;                       // two bytes load address, ignored by BLOAD ...,P(addr)
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+  const word = v => [v & 255, v >> 8];
+
+  // Picture or tile sheet: [width in bytes][height][data]
+  function picture(idx, w, h) {
+    const wb = Math.ceil(w / 2);
+    if (wb > 255 || h > 255) throw new Error('A picture can be at most 510 x 255 pixels.');
+    const data = packRows(idx, w, h, 0, 0, w, h, 0);
+    return { bytes: file([[wb, h], data]), widthBytes: wb, height: h, dataLength: data.length };
+  }
+
+  // Font: [glyph width in bytes][glyph height][number of glyphs][data]
+  function font(idx, w, h, cw, chh) {
+    if (cw % 2) throw new Error('The cell width must be even: two pixels share a byte.');
+    const cols = Math.floor(w / cw), rows = Math.floor(h / chh), wb = cw / 2;
+    if (!cols || !rows) throw new Error('The picture is smaller than one cell.');
+    if (wb * chh > 255) throw new Error('A glyph can be at most 255 bytes (width in bytes x height).');
+    if (cols * rows > 255) throw new Error('At most 255 glyphs.');
+    const parts = [[wb, chh, cols * rows]];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) parts.push(packRows(idx, w, h, c*cw, r*chh, cw, chh, 0));
+    return { bytes: file(parts), widthBytes: wb, height: chh, glyphs: cols * rows, dataLength: wb * chh * cols * rows };
+  }
+
+  // Sprite for VMS: [width in bytes][height][list length, word][data length, word][list][data]
+  // list = [alpha colour][number of entries, word][entries]
+  function sprite(idx, w, h, key, rowBytes) {
+    const wb = Math.ceil(w / 2);
+    if (wb > 255 || h > 255) throw new Error('A sprite can be at most 510 x 255 pixels.');
+    const clear = (x, y) => { if (x >= w) return true; const c = idx[y*w + x]; return c === CLEAR || c === key; };
+    const entries = [], data = [];
+    let count = 0, solid = 0;
+    for (let y = 0; y < h; y++) {
+      let run = null;                // [offset, length] of the solid run being collected
+      const flush = () => { if (run) { entries.push(1, ...word(run[0]), run[1]); count++; run = null; } };
+      for (let b = 0; b < wb; b++) {
+        const lc = clear(b*2, y), rc = clear(b*2 + 1, y), off = y * rowBytes + b;
+        if (lc && rc) { flush(); continue; }
+        const l = lc ? key : idx[y*w + b*2], r = rc ? key : idx[y*w + b*2 + 1];
+        data.push((l << 4) | r);
+        if (lc || rc) { flush(); entries.push(8, ...word(off)); count++; }
+        else { solid++; if (run && run[1] < 255) run[1]++; else { flush(); run = [off, 1]; } }
+      }
+      flush();
+    }
+    const list = [key, ...word(count), ...entries];
+    return { bytes: file([[wb, h], word(list.length), word(data.length), list, data]),
+      widthBytes: wb, height: h, listLength: list.length, dataLength: data.length, entries: count };
+  }
+
+  // 640x200, one bit per pixel: [80][height][data]
+  function hires(rgba, w, h, threshold) {
+    if (w > 640 || h > 255) throw new Error('A 640x200 picture can be at most 640 pixels wide.');
+    const wb = Math.ceil(w / 8), data = new Uint8Array(wb * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y*w + x) * 4, lum = 0.299*rgba[i] + 0.587*rgba[i+1] + 0.114*rgba[i+2];
+      if (rgba[i+3] >= 128 && lum >= threshold) data[y*wb + (x >> 3)] |= 128 >> (x & 7);
+    }
+    return { bytes: file([[wb, h], data]), widthBytes: wb, height: h, dataLength: data.length };
+  }
+
+  // a colour that does not occur in the picture, for sprites whose transparency comes from the file
+  function freeColour(idx) {
+    const used = new Set(idx);
+    for (let c = 0; c < 16; c++) if (!used.has(c)) return c;
+    return -1;
+  }
+
+  return { PALETTE, NAMES, CLEAR, quantize, picture, font, sprite, hires, freeColour };
+})();
+if (typeof module !== 'undefined') module.exports = VDC;
+</script>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  let img = null, result = null;
+
+  for (let c = 0; c < 16; c++) {
+    const o = document.createElement('option');
+    o.value = c; o.textContent = c + ' ' + VDC.NAMES[c];
+    $('key').appendChild(o);
+  }
+  $('key').insertAdjacentHTML('afterbegin', '<option value="-1" selected>only what is transparent in the file</option>');
+
+  function show() {
+    const m = $('mode').value;
+    $('optKey').hidden = m !== 'sprite';
+    $('optRow').hidden = m !== 'sprite';
+    $('optCell').hidden = m !== 'font';
+    $('optThr').hidden = m !== 'hires';
+  }
+
+  function convert() {
+    show();
+    result = null; $('save').disabled = true; $('code').hidden = true;
+    if (!img) return;
+    const w = img.width, h = img.height, cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d'); cx.drawImage(img, 0, 0);
+    const rgba = cx.getImageData(0, 0, w, h).data, m = $('mode').value, name = ($('name').value || 'picture').toUpperCase();
+    const info = $('info'); info.className = 'hint';
+    try {
+      const idx = VDC.quantize(rgba, w, h);
+      let lines;
+      if (m === 'picture') {
+        result = VDC.picture(idx, w, h);
+        lines = ['BLOAD "' + name + '",B0,P(BF)', 'W=PEEK(BF):H=PEEK(BF+1)', 'RTV BF+2,target,W*H'];
+        info.textContent = w + ' × ' + h + ' pixels → ' + result.widthBytes + ' bytes × ' + result.height + ' rows, ' + result.dataLength + ' bytes of data.';
+      } else if (m === 'font') {
+        result = VDC.font(idx, w, h, +$('cw').value, +$('ch').value);
+        lines = ['BLOAD "' + name + '",B0,P(BF)', 'W=PEEK(BF):H=PEEK(BF+1):N=PEEK(BF+2)', 'RTV BF+3,font,W*H*N', 'VCS font,W,H'];
+        info.textContent = result.glyphs + ' glyphs of ' + result.widthBytes + ' bytes × ' + result.height + ' rows, ' + result.dataLength + ' bytes of data.';
+      } else if (m === 'sprite') {
+        let key = +$('key').value;
+        if (key < 0) { key = VDC.freeColour(idx); if (key < 0) throw new Error('The picture uses all 16 colours. Choose a transparent colour.'); }
+        result = VDC.sprite(idx, w, h, key, +$('rowbytes').value);
+        lines = ['BLOAD "' + name + '",B0,P(BF)', 'LL=PEEK(BF+2)+256*PEEK(BF+3):DL=PEEK(BF+4)+256*PEEK(BF+5)', 'RTV BF+6+LL,sprite,DL', 'VMS sprite,target,BF+6'];
+        info.textContent = result.entries + ' list entries (' + result.listLength + ' bytes in RAM), ' + result.dataLength + ' bytes of sprite data in VRAM.';
+      } else {
+        result = VDC.hires(rgba, w, h, +$('thr').value);
+        lines = ['BLOAD "' + name + '",B0,P(BF)', 'W=PEEK(BF):H=PEEK(BF+1)', 'RTV BF+2,target,W*H : REM IF W=80'];
+        info.textContent = w + ' × ' + h + ' pixels → ' + result.widthBytes + ' bytes × ' + result.height + ' rows, ' + result.dataLength + ' bytes of data.';
+      }
+      info.textContent += ' File: ' + result.bytes.length + ' bytes.';
+      $('code').textContent = lines.join('\n'); $('code').hidden = false;
+      $('save').disabled = false;
+      preview(idx, rgba, w, h, m);
+    } catch (e) { info.textContent = e.message; info.className = 'err'; }
+  }
+
+  function preview(idx, rgba, w, h, m) {
+    const cv = $('preview'), hi = m === 'hires';
+    cv.width = w; cv.height = h;
+    cv.style.width = Math.min(w * (hi ? 1 : 4), 800) + 'px';
+    cv.style.aspectRatio = hi ? (w + ' / ' + h * 2) : (w + ' / ' + h);
+    const cx = cv.getContext('2d'), im = cx.createImageData(w, h), key = +$('key').value, thr = +$('thr').value;
+    for (let i = 0; i < w * h; i++) {
+      let p;
+      if (hi) { const l = 0.299*rgba[i*4] + 0.587*rgba[i*4+1] + 0.114*rgba[i*4+2]; p = (rgba[i*4+3] >= 128 && l >= thr) ? [255,255,255] : [0,0,0]; }
+      else if (idx[i] === VDC.CLEAR || (m === 'sprite' && idx[i] === key)) p = ((i % w >> 2) + (Math.floor(i / w) >> 2)) & 1 ? [60,60,60] : [90,90,90];
+      else p = VDC.PALETTE[idx[i]];
+      im.data.set([p[0], p[1], p[2], 255], i*4);
+    }
+    cx.putImageData(im, 0, 0);
+  }
+
+  $('file').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    $('name').value = f.name.replace(/\.[^.]*$/, '').slice(0, 16);
+    const i = new Image();
+    i.onload = () => { img = i; convert(); };
+    i.onerror = () => { $('info').textContent = 'This file could not be read as a picture.'; $('info').className = 'err'; };
+    i.src = URL.createObjectURL(f);
+  });
+  for (const id of ['mode','key','cw','ch','rowbytes','thr','name']) $(id).addEventListener('input', convert);
+  $('save').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([result.bytes], { type: 'application/octet-stream' }));
+    a.download = ($('name').value || 'picture').toLowerCase() + '.prg';
+    a.click();
+  });
+  show();
+})();
+</script>
+</body>
+</html>

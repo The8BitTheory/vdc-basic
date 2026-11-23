@@ -110,3 +110,5 @@ Sometimes the "wrong" behaviour is exactly what you want. `VMC A,A+1,99` copies 
 These two commands, fill and copy, are the heart of VDC-BASIC. Nearly everything from here on is built on them: more parameters for them, clever places to copy from, and clever places to copy to.
 
 So far we have only pushed characters around. In the next part we switch the VDC to bitmap mode and give ourselves a canvas.
+
+[Next: A canvas](04-a-canvas.md)
