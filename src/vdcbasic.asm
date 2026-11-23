@@ -635,6 +635,9 @@ vms
     ;jsr complex_instruction_parse3args
     jsr complex_instruction_shared_entry
 
+; entry with pre-filled parameters (arg1 = source, arg2 = target, arg3 = list address), used by VCL
+vms_execute
+
     ldx #24
     jsr vdc_reg_X_to_A
     ora #128
@@ -1293,6 +1296,9 @@ vcl
     bne +
     jmp .vcl_done           ; acc contains zero. the VCL is done
 
++   cmp #13                 ; command ids above 12 have no parameter table entry
+    bcc +
+    jmp .vcl_handle_unknown
 +   sta vcl_command_id
     inc offset_1
 
@@ -1339,7 +1345,7 @@ vcl
     ; VMW (6-7)
 +   lda #7
     cmp vcl_command_id
-    bmi .vcl_handle_unknown
+    bmi .vcl_check_vms
 
     lda arg3
     bne .vcl_vmw_next   
@@ -1370,6 +1376,29 @@ vcl
     sta arg1+1
 
     jmp .vcl_vmw_next
+
+    ; VMS (12): source, target, address of command list (bank 0)
+.vcl_check_vms
+    lda vcl_command_id
+    cmp #12
+    bne .vcl_handle_unknown
+    lda arg_address         ; VMS uses arg_address and offset_1 for its own list: keep VCL's
+    pha
+    lda arg_address + 1
+    pha
+    lda offset_1
+    pha
+    lda vcl_saved_cr        ; VMS reads its list header via the Kernal (FETCH): run it from the caller's configuration
+    sta $ff00
+    jsr remember_mem_conf
+    jsr vms_execute
+    pla
+    sta offset_1
+    pla
+    sta arg_address + 1
+    pla
+    sta arg_address
+    jmp .vcl_next_command
 
     ;handle unknown command-id
 .vcl_handle_unknown
@@ -1457,7 +1486,7 @@ arg_screen_width    !byte 0 ; the number of bytes in a scanline. can be eg 160 f
 vmp_length          !byte 0 ; length of the text to print
 
 vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
-vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
+vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,0,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8-11 not implemented, 12 = vms
 
 vms_block_source    !word 0;
 vmp_bank            !byte 0
