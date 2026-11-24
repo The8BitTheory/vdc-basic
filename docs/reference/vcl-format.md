@@ -22,7 +22,8 @@ Notes:
 - *reps*: only the low byte counts. In types 2, 3 and 5, 0 means 256; in type 7, 0 means 1.
 - *byte*: only the low byte counts.
 - Type 7 has no BASIC counterpart. It draws dotted or vertical lines of single bytes.
-- *n* (type 13): only the low byte counts, 0 to 255, so an entry can be longer than 256 bytes. *reg* and *value* likewise. With n = 0 the entry only waits, like plain `SYN`. With n > 0 it waits until the end of the text window (start of the vertical border area), then writes all registers one after the other with interrupts disabled. A page flip through R12/R13 therefore happens in one piece in the border.
+- *n* (type 13): the low byte is the number of pairs, 0 to 255, so an entry can be longer than 256 bytes. *reg* and *value*: only the low byte counts. With n = 0 the entry only waits, like plain `SYN`. With n > 0 it waits until the end of the text window (start of the vertical border area), then writes all registers one after the other with interrupts disabled. A page flip through R12/R13 therefore happens in one piece in the border.
+- High byte of *n* (type 13): 0 waits like `SYN`, for the *start* of the border; if the entry is reached while the border is already showing, that is almost a whole frame. Any other value only waits if the text window is being drawn, and continues at once inside the border. That halves the average wait, about 10 ms → 4 ms in PAL, but two such entries can pass in the same frame, and an entry reached in the last moments of the border may finish its writes after the next frame has begun. For a page flip, choose page addresses whose low bytes are equal, so that only one register changes.
 - Types 8–11 and all types above 13 are not implemented. They print `INVALID` and end the list.
 
 ## Example
@@ -50,3 +51,5 @@ Flip to the page at VRAM 16384 (`$4000`, bytes `$40,$00` for R12 and R13) right 
 |---|---|
 | `13, 2,0, 12,0, 64,0, 13,0, 0,0` | type 13: `SYN 12,64,13,0` (3 + 4·2 = 11 bytes) |
 | `0` | end |
+
+The same with `13, 2,1, …` does not wait if the border has already begun.

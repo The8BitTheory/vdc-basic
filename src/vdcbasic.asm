@@ -39,6 +39,7 @@
 ;               vmb: length 0 prints nothing
 ;               vcl: command 13 = syn, with optional register writes
 ;               vcl: unknown command no longer hangs (printed INVALID with the KERNAL banked out)
+;               vcl: command 13 with high byte of n <> 0 does not wait if already in the vertical border
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v2h installed"}
@@ -325,6 +326,7 @@ syn_wait  ; (also used by vcl) changes A only
       and #$20
       bne -
     ; wait until we are out of text window
+syn_wait_level ; (used by vcl, I/O must be on) returns at once if already in the border, changes A only
 -     lda vdc_state
       and #$20
       beq -
@@ -1310,16 +1312,21 @@ vcs
 ;  vcl parameters: <address of list>,[<bank of list-address>]
 !zone command_list {
 .vcl_syn                    ; 13, n, n * (reg, value): entry is 3 + 4 * n bytes, may be longer than 256
-    iny                     ; y = 1
-    lda (arg_address),y     ; n (low byte)
-    sta arg_loop
-    lda arg_address         ; base - 1: pairs at y = 4, 8, ...; y wraps to 0 only at the end of a pair
+    lda arg_address         ; base - 1: n at y = 2/3, pairs at y = 4, 8, ...; y wraps to 0 only at the end of a pair
     bne +
     dec arg_address + 1
 +   dec arg_address
-    ldy #4
+    ldy #2
+    lda (arg_address),y     ; n (low byte)
+    sta arg_loop
     php                     ; wait with the caller's interrupt flag, write registers with sei
-    jsr syn_wait            ; keeps X and Y
+    iny                     ; y = 3
+    lda (arg_address),y     ; high byte of n: 0 = wait for the start of the border, else only wait if not in it
+    beq +
+    jsr syn_wait_level      ; keeps X and Y, ends with A = $20
+    bne ++
++   jsr syn_wait            ; keeps X and Y
+++  iny                     ; y = 4
     sei
     ldx arg_loop
     beq .vcl_syn_end

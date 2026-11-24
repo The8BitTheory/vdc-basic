@@ -45,7 +45,7 @@ This writes `vdcbasic2h.bin` into the current directory.
 
 Things to know before changing the code:
 
-- **Size.** The code must end below `$1C01`, where BASIC programs start. v2h occupies `$1300`–`$1BEC`; 20 bytes are left.
+- **Size.** The code must end below `$1C01`, where BASIC programs start. v2h occupies `$1300`–`$1BF6`; 10 bytes are left.
 - **Load address.** It is set by `* = $1300` near the top of the source. The 2013/2014 release was also built for `$0AC6`. The current code is too long for that: from `$0AC6` it would run past `$1300`.
 - **BASIC ROM.** Parts of the code run with the BASIC ROM mapped in and must therefore stay below `$4000`; the macro `vdclib_assert_below_basic_rom` checks this at assembly time.
 - **Unfinished parts.** `VDL`, `VDR` and `VDB` (line, rectangle, box) exist as stubs behind the build switches `release_vdl`, `release_vdr`, `release_vdb` and are switched off. Token `$FE $3A` is a placeholder and must stay in the table so that the later tokens keep their numbers.
@@ -117,7 +117,7 @@ The guide collects the practical consequences in [chapter 13](docs/13-speed-and-
 | v2e | May 2025 | `VCS` and `VMP`: text in bitmap modes |
 | v2f | Jun 2025 | `VMC`: negative steps |
 | v2g | Oct 2025 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
-| v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0; `VCL` with an unknown entry type no longer hangs. New: `VCL` entry type 13 (`SYN` with register/value pairs, e.g. an atomic page flip inside a list). Tests, guide and reference added. |
+| v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0; `VCL` with an unknown entry type no longer hangs. New: `VCL` entry type 13 (`SYN` with register/value pairs, e.g. an atomic page flip inside a list), optionally without waiting when the border has already begun. Tests, guide and reference added. |
 
 ## Credits
 
