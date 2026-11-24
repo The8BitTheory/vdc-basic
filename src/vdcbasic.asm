@@ -33,11 +33,15 @@
 ; October 2025  introducing vmb (vmp with fixed string-address)
 ;               additional parameter for vcs to set screen-width
 ;               vmp now handles zero-length strings correctly (don't print anything)
+; v2h
+; November 2026 vcl: lists longer than 256 bytes, command 7 keeps an increment of 0
+;               vms: list may lie above $4000, command 2 no longer inherits increments from vmc
+;               vmb: length 0 prints nothing
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
-!macro message {!pet "vdc basic v2g installed"}
+!macro message {!pet "vdc basic v2h installed"}
 
-  !to "vdcbasic2g.bin", cbm
+  !to "vdcbasic2h.bin", cbm
 
   !source <6502/std.a>    ; for +bit16
   !source <6502/opcodes.a>  ; for AND/ORA self-mods
@@ -508,6 +512,7 @@ complex_instruction_shared_exit ; restore memory configuration
 .cr = * + 1:  lda #MODIFIED8
     sta $ff00
     rts
+saved_mem_conf = .cr    ; global name, for code in other zones
     +vdclib_assert_below_basic_rom  ; reached from rtv and vtr with BASIC ROM banked in
 
 !zone fill_and_copy
@@ -630,10 +635,19 @@ block_copy_target
 ; Video Memory Sprite-Copy. Like VMC with a mix of VCL.
 ; vram-source is read continuously, target address can have gaps (used for transparency)
 ; effectively executes a number of VMC calls
-; parameters: vram-source, vram-target, address of command-bytes (target-increment, nr bytes to copy). first command-byte holds number of commands
+; parameters: vram-source, vram-target, address of command list (bank 0).
+; list: alpha value (byte), number of commands (word), then the commands. Lists may be longer than 256 bytes.
 vms
     ;jsr complex_instruction_parse3args
     jsr complex_instruction_shared_entry
+
+; entry with pre-filled parameters (arg1 = source, arg2 = target, arg3 = list address), used by VCL
+vms_execute
+    ; the caller's memory configuration was stored by remember_mem_conf.
+    ; the whole list is read with RAM 0 and I/O mapped in ($3e), so it may lie
+    ; under the BASIC ROM; the caller's configuration is restored at the end.
+    lda saved_mem_conf
+    sta vms_saved_cr
 
     ldx #24
     jsr vdc_reg_X_to_A
@@ -659,28 +673,35 @@ vms
     lda arg3+1
     sta arg_address+1
 
-    jsr complex_instruction_shared_exit
-
-    lda #<arg_address
-    sta $02aa
-
     ldy #0
-    ldx #$3f        ;bank 1
-    jsr k_fetch
+    lda (arg_address),y
     sta vms_alpha 
 
     iny
-    ldx #$3f        ;bank 1
-    jsr k_fetch
-    sta arg_loop
+    lda (arg_address),y
+    sta arg_loop    ; number of commands, low byte
+
+    iny
+    lda (arg_address),y
+    sta vms_count_hi ; number of commands, high byte
 
     iny
     sty offset_1
+    ora arg_loop
+    bne .vms_arg_loop
+    jmp .vms_done   ; no commands
 
     ;add target-offset to vram-target address    
     ;will need to be made ready for indfet later, I guess
 .vms_arg_loop
-    ldy offset_1
+    clc             ; move the list pointer past the bytes read so far: offset_1 stays small
+    lda offset_1
+    adc arg_address
+    sta arg_address
+    bcc +
+    inc arg_address + 1
++   ldy #0
+    sty offset_1
 
     ; read vms-command byte (1=block copy with target-addr-increase and length, 2=OR with target-addr increase (length implicitly 1))
     lda (arg_address),y
@@ -759,6 +780,14 @@ vms
     ldx #1
     jsr vdc_reg_X_to_A
     sta arg5
+    lda #0          ; do not inherit increments from an earlier VMC
+    sta arg5+1
+    sta arg6
+    sta arg6+1
+    lda arg_address2 ; the rectangle goes to the target address itself
+    sta arg2
+    lda arg_address2+1
+    sta arg2+1
 
 .vms_block_copy_execute
     ;execute vmc
@@ -839,18 +868,27 @@ vms
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
-    ; check for more vms parameters
+    ; check for more vms parameters (16-bit count)
 .vms_check_more
-    dec arg_loop
+    lda arg_loop
+    bne +
+    dec vms_count_hi
++   dec arg_loop
+    lda arg_loop
+    ora vms_count_hi
     beq .vms_done
     jmp .vms_arg_loop
 
 .vms_invalid
+    lda vms_saved_cr    ; the Kernal must be visible for primm
+    sta $ff00
     jsr k_primm
     !pet "invalid vms command"
     !byte 0
 
 .vms_done
+    lda vms_saved_cr    ; restore caller's memory configuration
+    sta $ff00
     rts
 
 !zone transfer_stuff
@@ -1063,7 +1101,10 @@ vmb
 
     jsr b_parse_uint8_to_X
     stx vmp_length
-
+    txa
+    bne +
+    rts             ; nothing to print
++
     lda #$3f
     sta vmp_bank
 
@@ -1219,7 +1260,8 @@ vcs
     jmp ++
 
 ;   no screen-width parameter found, pull it from the vdc-register    
-+   ldx #1
++   jsr io_on               ; I/O may be banked out after parsing; reading $d600/$d601 would hit RAM ($ff)
+    ldx #1
     jsr vdc_reg_X_to_A
     sta arg_screen_width
 
@@ -1270,11 +1312,20 @@ vcl
 
     ldy #0
     sty offset_1
+    lda $ff00               ; remember caller's memory configuration once for the whole list
+    sta vcl_saved_cr
 
 .vcl_next_command
     jsr remember_mem_conf
 
-    ldy #0
+    clc             ; move the list pointer past the bytes read so far: offset_1 stays small
+    lda offset_1
+    adc arg_address
+    sta arg_address
+    bcc +
+    inc arg_address + 1
++   ldy #0
+    sty offset_1
     sty offset_2
 
     ; clear args
@@ -1290,6 +1341,9 @@ vcl
     bne +
     jmp .vcl_done           ; acc contains zero. the VCL is done
 
++   cmp #13                 ; command ids above 12 have no parameter table entry
+    bcc +
+    jmp .vcl_handle_unknown
 +   sta vcl_command_id
     inc offset_1
 
@@ -1311,7 +1365,17 @@ vcl
     
     cpx arg_loop
     bne -
-    
+
+    ; commands without repetition parameter (1, 4): args were cleared, so treat 0 repetitions as 1
+    ; (VMC and VMF only: for VMW, arg4 is the address increment)
+    lda vcl_command_id
+    cmp #6
+    bcs +
+    lda arg4
+    ora arg4 + 1
+    bne +
+    inc arg4
++
     ; VMC (1-3)
     lda #3
     cmp vcl_command_id
@@ -1323,7 +1387,6 @@ vcl
 +   lda #5
     cmp vcl_command_id
     bmi +
-    jsr remember_mem_conf
     ldy arg3
     jsr vmf_execute
     jmp .vcl_next_command
@@ -1331,7 +1394,7 @@ vcl
     ; VMW (6-7)
 +   lda #7
     cmp vcl_command_id
-    bmi .vcl_handle_unknown
+    bmi .vcl_check_vms
 
     lda arg3
     bne .vcl_vmw_next   
@@ -1350,7 +1413,9 @@ vcl
     jsr vmw_execute
 
     dec arg3
-    beq .vcl_next_command      ; if no more repetitions, go to end of command
+    bne +
+    jmp .vcl_next_command      ; if no more repetitions, go to end of command
++
 
     clc
     lda arg1
@@ -1363,15 +1428,39 @@ vcl
 
     jmp .vcl_vmw_next
 
+    ; VMS (12): source, target, address of command list (bank 0)
+.vcl_check_vms
+    lda vcl_command_id
+    cmp #12
+    bne .vcl_handle_unknown
+    lda arg_address         ; VMS uses arg_address and offset_1 for its own list: keep VCL's
+    pha
+    lda arg_address + 1
+    pha
+    lda offset_1
+    pha
+    lda vcl_saved_cr        ; VMS reads its list header via the Kernal (FETCH): run it from the caller's configuration
+    sta $ff00
+    jsr remember_mem_conf
+    jsr vms_execute
+    pla
+    sta offset_1
+    pla
+    sta arg_address + 1
+    pla
+    sta arg_address
+    jmp .vcl_next_command
+
     ;handle unknown command-id
 .vcl_handle_unknown
     jsr k_primm
     !pet "invalid"
     !byte 0
-    rts
 
 .vcl_done
-    jmp complex_instruction_shared_exit
+    lda vcl_saved_cr        ; restore caller's memory configuration (commands may have changed .cr)
+    sta $ff00
+    rts
 
 }
 
@@ -1447,7 +1536,10 @@ arg_screen_width    !byte 0 ; the number of bytes in a scanline. can be eg 160 f
 
 vmp_length          !byte 0 ; length of the text to print
 
-vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7    ;first byte is dummy-byte. values -1 because of end-loop check (bne)
+vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
+vms_count_hi        !byte 0     ; VMS: number of commands, high byte
+vms_saved_cr        !byte 0     ; VMS: memory configuration of the caller
+vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,0,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8-11 not implemented, 12 = vms
 
 vms_block_source    !word 0;
 vmp_bank            !byte 0

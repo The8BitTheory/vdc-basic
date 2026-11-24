@@ -209,6 +209,12 @@ SYN;fe34;
 DISP;fe35;
 ATTR;fe36;
 CRSR;fe37;
+VCS;fe38;
+VMP;fe39;
+#fe3a is a placeholder (zzz) in vdcbasic, do not use
+VCL;fe3b;
+VMS;fe3c;
+VMB;fe3d;
 RGD;ce0b;
 VMD;ce0c;
 
