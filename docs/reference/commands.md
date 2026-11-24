@@ -37,7 +37,7 @@ Do this before you put anything into VRAM. The switch changes how the chip addre
 BLOAD "VDCBASIC2H",B0 : SYS DEC("1300")
 ```
 
-The extension occupies `$1300`–`$1BB5` and prints `VDC BASIC V2H INSTALLED`. It stays active until reset. After installation the new keywords are recognised when a line is entered, so they can no longer be part of a variable name (`ATTRIB`, `DISPLAY`, `SYNC` will not work).
+The extension occupies `$1300`–`$1BE9` and prints `VDC BASIC V2H INSTALLED`. It stays active until reset. After installation the new keywords are recognised when a line is entered, so they can no longer be part of a variable name (`ATTRIB`, `DISPLAY`, `SYNC` will not work).
 
 ## Overview
 
@@ -275,6 +275,8 @@ With pairs: evaluates all parameters first, waits for the vertical blank, then w
 SYN 12,P/256, 13,P AND 255, 20,Q/256, 21,Q AND 255
 ```
 
+Both forms can also stand in a [`VCL`](#vcl) list as entry type 13; see [VCL list format](vcl-format.md).
+
 ### RST
 
 ```
@@ -354,7 +356,7 @@ The list says which stretches of the sprite data go where. Bytes not mentioned a
 VCL addr
 ```
 
-Executes a command list stored at *addr* in CPU RAM bank 0. Each entry is one type byte followed by 16-bit parameters and stands for one `VMC`, `VMF`, `VMW` or `VMS`. A zero byte ends the list. See [VCL list format](vcl-format.md).
+Executes a command list stored at *addr* in CPU RAM bank 0. Each entry is one type byte followed by 16-bit parameters and stands for one `VMC`, `VMF`, `VMW`, `VMS` or `SYN`. A zero byte ends the list. See [VCL list format](vcl-format.md).
 
 A list saves the time BASIC needs to read and evaluate each statement, which is most of the time of a short `VMC`.
 
@@ -369,7 +371,7 @@ For programs that add their own machine code.
 
 | Location | Use |
 |---|---|
-| `$1300`–`$1BB5` | Code and variables |
+| `$1300`–`$1BE9` | Code and variables |
 | `$02FC`, `$030C`–`$0311` | BASIC vectors taken over (function call, tokenise, list, execute) |
 | `$0A`–`$0E`, `$26`–`$2A` | Work bytes of `VCL`, `VMS`, `VMP` |
 | `$3F`/`$40`, `$77`/`$78` | List and target pointers |

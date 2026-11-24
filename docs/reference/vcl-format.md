@@ -15,13 +15,15 @@ Each entry starts with a type byte. All parameters are 16-bit words, low byte fi
 | 6 | 5 | vaddr, byte | `VMW vaddr,byte` |
 | 7 | 9 | vaddr, byte, reps, step | `VMW` repeated *reps* times, *vaddr* growing by *step* |
 | 12 | 7 | source, target, list address | `VMS source,target,addr` |
+| 13 | 3 + 4·n | n, then n pairs reg, value | `SYN reg,value,...` (n = 0: plain `SYN`) |
 
 Notes:
 
 - *reps*: only the low byte counts. In types 2, 3 and 5, 0 means 256; in type 7, 0 means 1.
 - *byte*: only the low byte counts.
 - Type 7 has no BASIC counterpart. It draws dotted or vertical lines of single bytes.
-- Types 8–11 and all types above 12 are not implemented. They print `INVALID` and end the list.
+- *n* (type 13): only the low byte counts, 0 to 255, so an entry can be longer than 256 bytes. *reg* and *value* likewise. With n = 0 the entry only waits, like plain `SYN`. With n > 0 it waits until the end of the text window (start of the vertical border area), then writes all registers one after the other with interrupts disabled. A page flip through R12/R13 therefore happens in one piece in the border.
+- Types 8–11 and all types above 13 are not implemented. They print `INVALID` and end the list.
 
 ## Example
 
@@ -41,3 +43,10 @@ Fill a 160×100 page at VRAM 0 with colour 0, then blit a packed 4×16 tile from
 50 DATA 0
 60 VCL A
 ```
+
+Flip to the page at VRAM 16384 (`$4000`, bytes `$40,$00` for R12 and R13) right after the wait:
+
+| Bytes | Meaning |
+|---|---|
+| `13, 2,0, 12,0, 64,0, 13,0, 0,0` | type 13: `SYN 12,64,13,0` (3 + 4·2 = 11 bytes) |
+| `0` | end |

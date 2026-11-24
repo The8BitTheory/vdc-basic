@@ -37,6 +37,7 @@
 ; November 2026 vcl: lists longer than 256 bytes, command 7 keeps an increment of 0
 ;               vms: list may lie above $4000, command 2 no longer inherits increments from vmc
 ;               vmb: length 0 prints nothing
+;               vcl: command 13 = syn, with optional register writes
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v2h installed"}
@@ -316,6 +317,7 @@ syn ; wait for end of text window, then write register values
     jsr chrgot  ; anything else?
     bne .syn_with_args
 .just_syn ; wait for end of text window
+syn_wait  ; (also used by vcl) changes A only
     jsr io_on
     ; wait until we are in text window
 -     lda vdc_state
@@ -1295,6 +1297,7 @@ vcs
 ; 10: vma with 2 parameters
 ; 11: vma with 4 parameters (reserved)
 ; 12: vms with 3 parameters
+; 13: syn: n, then n pairs of register, value (n = 0: just wait for end of text window)
 ; ff: sleep with 1 parameter (jiffies to sleep)
 ; 
 ;  bytes after that are the parameters (can be 1 or 2 bytes each)
@@ -1305,6 +1308,37 @@ vcs
 
 ;  vcl parameters: <address of list>,[<bank of list-address>]
 !zone command_list {
+.vcl_syn                    ; 13, n, n * (reg, value): entry is 3 + 4 * n bytes, may be longer than 256
+    iny                     ; y = 1
+    lda (arg_address),y     ; n (low byte)
+    sta arg_loop
+    lda arg_address         ; base - 1: pairs at y = 4, 8, ...; y wraps to 0 only at the end of a pair
+    bne +
+    dec arg_address + 1
++   dec arg_address
+    ldy #4
+    php                     ; wait with the caller's interrupt flag, write registers with sei
+    jsr syn_wait            ; keeps X and Y
+    sei
+    ldx arg_loop
+    beq .vcl_syn_end
+-     lda (arg_address),y   ; register
+      tax
+      iny
+      iny
+      lda (arg_address),y   ; value
+      jsr A_to_vdc_reg_X    ; keeps Y
+      iny
+      iny
+      bne +
+      inc arg_address + 1
++     dec arg_loop
+      bne -
+.vcl_syn_end
+    plp
+    sty offset_1            ; next entry is at arg_address + y
+    jmp .vcl_next_command
+
 vcl
     jsr b_parse_uint16
     sty arg_address
@@ -1341,8 +1375,9 @@ vcl
     bne +
     jmp .vcl_done           ; acc contains zero. the VCL is done
 
-+   cmp #13                 ; command ids above 12 have no parameter table entry
++   cmp #13                 ; only 1-12 have a parameter table entry, 14+ are unknown
     bcc +
+    beq .vcl_syn            ; 13 has a variable length
     jmp .vcl_handle_unknown
 +   sta vcl_command_id
     inc offset_1
@@ -1539,7 +1574,7 @@ vmp_length          !byte 0 ; length of the text to print
 vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
 vms_count_hi        !byte 0     ; VMS: number of commands, high byte
 vms_saved_cr        !byte 0     ; VMS: memory configuration of the caller
-vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,0,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8-11 not implemented, 12 = vms
+vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,0,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8-11 not implemented, 12 = vms. 13 = syn is handled separately (variable length)
 
 vms_block_source    !word 0;
 vmp_bank            !byte 0

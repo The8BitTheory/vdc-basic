@@ -25,6 +25,7 @@ The most useful entries:
 | 5 | address, value, count, repetitions, step | `VMF` with five: the rectangle |
 | 6 | address, value | `VMW` |
 | 12 | source, target, list | `VMS`: a sprite |
+| 13 | n, then n pairs register, value | `SYN`: wait, then write the registers (n = 0: only wait) |
 | 0 | | end of the list |
 
 The complete table is in the reference: [VCL list format](reference/vcl-format.md).
@@ -105,11 +106,11 @@ Once a screen is a list, new things become easy.
 
 **Keep several.** One list per room, per menu, per kind of wall. Showing something is one `VCL` with the right address. The view of a first-person dungeon game is a natural case: each wall piece at each distance is a few blits, and what is visible from where the player stands decides which lists are run, back to front.
 
-**Mix commands.** A list can clear a page, lay the tiles, draw the frame around the status display and place three sprites, in one go.
+**Mix commands.** A list can clear a page, lay the tiles, draw the frame around the status display and place three sprites, in one go. A `SYN` entry (type 13) can stand anywhere in the list, as often as needed: it waits for the vertical blank and can set registers there, for example to show a page or to change the colours from that point on.
 
 **Change one number.** The entries are at known places in memory. Poke a different source address into the third tile's entry, and that tile is a different one the next time the list runs. A tile that is animated, a door that opens.
 
-Two things a list cannot do. It cannot decide anything: there is no "if". And every address in it is fixed when it is written. A list that draws onto page 0 always draws onto page 0. To use lists with page flipping, write one list per page, or let the list draw into a store from which the pages are refreshed, as in chapter 8.
+Two things a list cannot do. It cannot decide anything: there is no "if". And every address in it is fixed when it is written. A list that draws onto page 0 always draws onto page 0. To use lists with page flipping, write one list per page, which can also show its page with a type 13 entry that writes R12 and R13, or let the list draw into a store from which the pages are refreshed, as in chapter 8.
 
 ## Fine print
 
@@ -122,7 +123,7 @@ Two things a list cannot do. It cannot decide anything: there is no "if". And ev
 
 | Command | Does |
 |---|---|
-| `VCL address` | runs a list of copy, fill, write and sprite commands |
+| `VCL address` | runs a list of copy, fill, write, sprite and `SYN` commands |
 
 That was the last command. You have now met all of VDC-BASIC. The remaining chapters put the pieces together.
 

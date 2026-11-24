@@ -156,7 +156,7 @@ Goal: a figure with transparent pixels over a background.
 **12. Scripts for the chip: command lists**
 Goal: draw a complete scene with a single BASIC statement.
 - The real cost in a BASIC program is the interpreter parsing each statement, not the VDC. A command list stores the parameters as bytes, so one `VCL` replaces dozens of statements.
-- Building a list: by `POKE`, from `DATA`, or loaded from disk. The byte layout for copy, fill, write and sprite entries.
+- Building a list: by `POKE`, from `DATA`, or loaded from disk. The byte layout for copy, fill, write, sprite and `SYN` entries.
 - Lists as data: one list per wall piece, per screen, per animation frame.
 - Commands: `VCL`.
 - Listing: the tile map from chapter 7 drawn by one list, with timing.
@@ -198,7 +198,7 @@ Fixed layout per command: syntax, parameters with ranges, what it does, notes an
 
 ### 4.2 Tables and appendices
 
-- `VCL` entry types with exact byte layout (types 1–7 and 12, terminator 0).
+- `VCL` entry types with exact byte layout (types 1–7, 12 and 13, terminator 0).
 - `VMS` list layout: alpha byte, 16-bit count, entry types 1, 2 and 8.
 - Token values and keyword abbreviations; editor setup.
 - VDC registers used in this guide, with the values of the standard modes.
@@ -216,7 +216,7 @@ These came up while reading `vdcbasic.asm` and differ from, or were missing in, 
 2. `VMC`/`VMF`: if repetitions are given, the target increment is required. The separator before the increments is skipped without being checked for a comma.
 3. Repetitions are one byte; 0 behaves as 256.
 4. `VMC` source increment 0 or omitted means "source runs on contiguously". A source cannot be held still across repetitions.
-5. `VCL` type 7 (`VMW` with repetitions and increment) is marked "reserved" in the comment but works. Types 8–11 (`VMO`/`VMA`) and `$FF` (sleep) are listed in the comment and not implemented. The bank parameter in the comment does not exist; lists are read from RAM bank 0.
+5. `VCL` type 7 (`VMW` with repetitions and increment) is marked "reserved" in the comment but works. Type 13 is `SYN` (`n` register/value pairs; 0 = only wait). Types 8–11 (`VMO`/`VMA`) and `$FF` (sleep) are listed in the comment and not implemented. The bank parameter in the comment does not exist; lists are read from RAM bank 0.
 6. `VCL` type 6/7 take the value as a 16-bit field of which only the low byte is used.
 7. `VMS` entry type 2 copies a rectangle to the target address using the current R1 as row length; it takes no offset of its own.
 8. `VMP` maps a character to glyph number `code − 32`, so codes below 32 are not printable, and it reads the string from bank 1; `VMB` reads from bank 0.
@@ -225,7 +225,7 @@ These came up while reading `vdcbasic.asm` and differ from, or were missing in, 
 11. `DISP`, `ATTR`, `CRSR` accept 0–65535 only (open TODO in the source).
 12. `RTV`, `VTR`, `SWP` with count 0 transfer 65536 bytes; `VCC` with count 0 copies 256 characters.
 13. 64 KiB VRAM is only addressable after `RGO 28,16`; without it, addresses above 16383 mirror the lower 16 KiB even on a 64 KiB machine. Every 64 KiB example must start with it.
-14. The source assembles to `$1300` and writes `vdcbasic2h.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2h, and the tools load `VDCBASIC2F.1300`. v2h is 2230 bytes (`$1300`–`$1BB5`), which leaves 75 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
+14. The source assembles to `$1300` and writes `vdcbasic2h.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2h, and the tools load `VDCBASIC2F.1300`. v2h is 2282 bytes (`$1300`–`$1BE9`), which leaves 23 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
 
 ## 6. Proposed order of work
 
