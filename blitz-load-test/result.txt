@@ -1,0 +1,133 @@
+columns: $2D/$2E BASIC start | $1210 end of text | $AE load end | $1C01.. | $4001..
+
+== a_8: load"a",8
+  before      002d  01 1c | 1210  03 1c | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  ff 00 00 00  00 ff ff ff
+  after_load  002d  01 1c | 1210  cf 46 | 00ae  cf 46 | 1c01  2d 1c 01 00  97 36 2c c2 | 4001  20 78 21 a2  37 a0 40 a9
+  after_run   002d  01 1c | 1210  cd 46 | 00ae  cf 46 | 1c01  2d 1c 01 00  97 36 2c c2 | 4001  20 78 21 a2  37 a0 40 a9
+  |READY.
+  |POKE2816,1
+  |READY.
+  |LOAD"A",8
+  |SEARCHING FOR A
+  |LOADING
+  |READY.
+  |POKE2816,2
+  |READY.
+  |RUN
+  |A-OK
+  |READY.
+  |POKE2816,3
+
+== a_81: load"a",8,1
+  before      002d  01 1c | 1210  03 1c | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  ff 00 00 00  00 ff ff ff
+  after_load  002d  01 1c | 1210  cf 46 | 00ae  cf 46 | 1c01  2d 1c 01 00  97 36 2c c2 | 4001  20 78 21 a2  37 a0 40 a9
+  after_run   002d  01 1c | 1210  cd 46 | 00ae  cf 46 | 1c01  2d 1c 01 00  97 36 2c c2 | 4001  20 78 21 a2  37 a0 40 a9
+  |READY.
+  |POKE2816,1
+  |READY.
+  |LOAD"A",8,1
+  |SEARCHING FOR A
+  |LOADING
+  |READY.
+  |POKE2816,2
+  |READY.
+  |RUN
+  |A-OK
+  |READY.
+  |POKE2816,3
+
+== b_8: load"b",8
+  before      002d  01 1c | 1210  03 1c | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  ff 00 00 00  00 ff ff ff
+  after_load  002d  01 1c | 1210  68 48 | 00ae  68 48 | 1c01  2d 1c 01 00  97 36 2c c2 | 4001  db e6 52 a5  52 2c a9 00
+  after_run   002d  01 40 | 1210  66 6c | 00ae  68 48 | 1c01  db db db db  db db db db | 4001  2d 1c 01 00  97 36 2c c2
+  |READY.
+  |POKE2816,1
+  |READY.
+  |LOAD"B",8
+  |SEARCHING FOR B
+  |LOADING
+  |READY.
+  |POKE2816,2
+  |READY.
+  |RUN
+  |B-OK
+  |READY.
+  |POKE2816,3
+
+== b_81: load"b",8,1
+  before      002d  01 1c | 1210  03 1c | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  ff 00 00 00  00 ff ff ff
+  after_load  002d  01 1c | 1210  68 6c | 00ae  68 6c | 1c01  00 00 ff ff  ff 00 00 00 | 4001  2d 40 01 00  97 36 2c c2
+  after_run   002d  01 1c | 1210  68 6c | 00ae  68 6c | 1c01  00 00 ff ff  ff 00 00 00 | 4001  2d 40 01 00  97 36 2c c2
+  |READY.
+  |POKE2816,1
+  |READY.
+  |LOAD"B",8,1
+  |SEARCHING FOR B
+  |LOADING
+  |READY.
+  |POKE2816,2
+  |READY.
+  |RUN
+  |READY.
+  |POKE2816,3
+
+== g_a_8: graphic1:graphic0:load"a",8
+  before      002d  01 40 | 1210  03 40 | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  00 00 00 00  00 ff ff ff
+  after_load  002d  01 40 | 1210  cf 6a | 00ae  cf 6a | 1c01  00 00 ff ff  ff 00 00 00 | 4001  2d 40 01 00  97 36 2c c2
+  after_run   002d  01 1c | 1210  cd 46 | 00ae  cf 6a | 1c01  2d 40 01 00  97 36 2c c2 | 4001  20 78 21 a2  37 a0 40 a9
+  |GRAPHIC1:GRAPHIC0
+  |READY.
+  |POKE2816,1
+  |READY.
+  |LOAD"A",8
+  |SEARCHING FOR A
+  |LOADING
+  |READY.
+  |POKE2816,2
+  |READY.
+  |RUN
+  |A-OK
+  |READY.
+  |POKE2816,3
+
+== g_a_81: graphic1:graphic0:load"a",8,1
+  before      002d  01 40 | 1210  03 40 | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  00 00 00 00  00 ff ff ff
+  after_load  HANG (no READY until the cycle limit)
+
+== g_b_8: graphic1:graphic0:load"b",8
+  before      002d  01 40 | 1210  03 40 | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  00 00 00 00  00 ff ff ff
+  after_load  002d  01 40 | 1210  68 6c | 00ae  68 6c | 1c01  00 00 ff ff  ff 00 00 00 | 4001  2d 40 01 00  97 36 2c c2
+  after_run   002d  01 40 | 1210  66 6c | 00ae  68 6c | 1c01  db db db db  db db db db | 4001  2d 40 01 00  97 36 2c c2
+  |GRAPHIC1:GRAPHIC0
+  |READY.
+  |POKE2816,1
+  |READY.
+  |LOAD"B",8
+  |SEARCHING FOR B
+  |LOADING
+  |READY.
+  |POKE2816,2
+  |READY.
+  |RUN
+  |B-OK
+  |READY.
+  |POKE2816,3
+
+== g_b_81: graphic1:graphic0:load"b",8,1
+  before      002d  01 40 | 1210  03 40 | 00ae  00 00 | 1c01  00 00 ff ff  ff 00 00 00 | 4001  00 00 00 00  00 ff ff ff
+  after_load  002d  01 40 | 1210  68 6c | 00ae  68 6c | 1c01  00 00 ff ff  ff 00 00 00 | 4001  2d 40 01 00  97 36 2c c2
+  after_run   002d  01 40 | 1210  66 6c | 00ae  68 6c | 1c01  db db db db  db db db db | 4001  2d 40 01 00  97 36 2c c2
+  |GRAPHIC1:GRAPHIC0
+  |READY.
+  |POKE2816,1
+  |READY.
+  |LOAD"B",8,1
+  |SEARCHING FOR B
+  |LOADING
+  |READY.
+  |POKE2816,2
+  |READY.
+  |RUN
+  |B-OK
+  |READY.
+  |POKE2816,3

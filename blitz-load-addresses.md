@@ -2,8 +2,8 @@
 
 Programs compiled with Blitz! for the C128 come in two variants with different load addresses. This note
 explains why, and what `LOAD "x",8` and `LOAD "x",8,1` do with each of them. All values below were measured in VICE
-(x128 3.10) with two real Blitz compiles. Program A has no graphics commands (header `$1C01`, 10,963 bytes).
-Program B contains `GRAPHIC1,1:GRAPHIC0` (header `$4001`, 11,370 bytes).
+(x128 3.10) with two real Blitz compiles. Program A has no graphics commands (header `$1C01`, 10,960 bytes).
+Program B contains `GRAPHIC1,1:GRAPHIC0` (header `$4001`, 11,369 bytes).
 
 ## Why some compiled programs start at `$4001`
 
@@ -40,10 +40,10 @@ it jumps into the runtime.
 
 | | **header `$1C01`** (A) | **header `$4001`** (B) |
 |---|---|---|
-| **`LOAD ,8`, graphics off** | loaded to `$1C01-$46D1`<br>BASIC start: `$1C01`<br>RUN: runs, nothing is copied | loaded to `$1C01-$4868`<br>BASIC start: `$1C01`<br>RUN: the loader copies the program up to `$4001`, sets the BASIC start to `$4001`, then runs it |
-| **`LOAD ,8`, graphics reserved** | loaded to `$4001-$6AD1`<br>BASIC start: `$4001`<br>RUN: the loader copies the program down to `$1C01`, sets the BASIC start to `$1C01`, then runs it. The graphics area is overwritten after that. | loaded to `$4001-$6C68`<br>BASIC start: `$4001`<br>RUN: runs, nothing is copied |
-| **`LOAD ,8,1`, graphics off** | same as `,8` (the header matches the BASIC start) | loaded to `$4001-$6C68`<br>BASIC start stays `$1C01`<br>RUN: runs the empty program at `$1C01`, READY at once, no error |
-| **`LOAD ,8,1`, graphics reserved** | loaded to `$1C01-$46D1`, into the graphics area and past it<br>BASIC start stays `$4001`<br>**the machine hangs right after the READY that follows LOAD** | same as `,8` (the header matches the BASIC start) |
+| **`LOAD ,8`, graphics off** | loaded to `$1C01-$46CE`<br>BASIC start: `$1C01`<br>RUN: runs, nothing is copied | loaded to `$1C01-$4867`<br>BASIC start: `$1C01`<br>RUN: the loader copies the program up to `$4001`, sets the BASIC start to `$4001`, then runs it |
+| **`LOAD ,8`, graphics reserved** | loaded to `$4001-$6ACE`<br>BASIC start: `$4001`<br>RUN: the loader copies the program down to `$1C01`, sets the BASIC start to `$1C01`, then runs it. The graphics area is overwritten after that. | loaded to `$4001-$6C67`<br>BASIC start: `$4001`<br>RUN: runs, nothing is copied |
+| **`LOAD ,8,1`, graphics off** | same as `,8` (the header matches the BASIC start) | loaded to `$4001-$6C67`<br>BASIC start stays `$1C01`<br>RUN: runs the empty program at `$1C01`, READY at once, no error |
+| **`LOAD ,8,1`, graphics reserved** | loaded to `$1C01-$46CE`, into the graphics area and past it<br>BASIC start stays `$4001`<br>**the machine hangs right after the READY that follows LOAD** | same as `,8` (the header matches the BASIC start) |
 
 ## More details
 
@@ -51,7 +51,7 @@ it jumps into the runtime.
   never changes the BASIC start. Only the Blitz loader does that, when the program is RUN.
 - **In every case, LOAD sets the end of the program (`$1210/$1211`) to the end of the load (`$AE/$AF`).** It does so
   even with `,8,1` when that end does not fit the BASIC start. In "B, `,8,1`, graphics off", BASIC therefore treats
-  `$1C01-$6C69` as program text.
+  `$1C01-$6C67` as program text.
 - **After LOAD, BASIC relinks the lines from the BASIC start.** With `,8` and graphics reserved, the link of the stub
   line changes from `2D 1C` to `2D 40`, so the stub runs at either address.
 - **The hang in "A, `,8,1`, graphics reserved":** after READY the machine takes no more input. I did not trace the
@@ -63,9 +63,31 @@ it jumps into the runtime.
   `PEEK($1C25+L)`, only works for the `$1C01` variant. A `$4001` program is at `$4001` once it runs, so the text is
   at `$4026`. Use `PEEK(46)*256+37+L` to cover both variants.
 
-## How it was measured
+## Test setup
 
-x128 was driven through the remote monitor. After every step (initial state, LOAD, RUN), the key buffer typed a
-`POKE 2816,n`. A `watch store 0b00` stopped the machine at that point, and the monitor then read `$2D/$2E`,
-`$1210/$1211`, `$AE/$AF`, `$1C01..` and `$4001..` in bank `ram`. The programs were compiled with the JS port of the
-Blitz!128 compiler (github.com/the8bittheory/blitz-compiler, `blitz128/blitzc`).
+Everything is in [`blitz-load-test/`](blitz-load-test/):
+
+| file | purpose |
+|---|---|
+| `a.bas`, `b.bas` | test programs (A prints `A-OK`; B runs `GRAPHIC1,1:GRAPHIC0` and prints `B-OK`) |
+| `t.d64` | test disk with the compiled programs `a` (load address `$1C01`) and `b` (`$4001`) |
+| `build.sh` | rebuilds `t.d64`. Needs `petcat`/`c1541` (VICE), `node` and the Blitz!128 JS compiler from github.com/the8bittheory/blitz-compiler (`blitz128/blitzc`, path in `BLITZC`) |
+| `run.py` | runs the eight cases in VICE x128 and prints the pointers, memory and screen per step |
+| `result.txt` | output of `run.py` for the checked-in `t.d64` (the source of the table above) |
+
+```sh
+cd blitz-load-test
+./run.py              # all eight cases, about 25 s
+./run.py g_a_81       # one case: g_ = GRAPHIC1:GRAPHIC0 first, a/b = program, 8/81 = LOAD ,8 / ,8,1
+./build.sh            # only to rebuild t.d64
+```
+
+How `run.py` works: each case boots a fresh x128 (`-default -warp`) with `t.d64` in drive 8. After every step
+(initial state, LOAD, RUN), the key buffer types a `POKE 2816,n`. A `watch store 0b00` (set with `-moncommands`) stops
+the machine at that point, so there are no fixed waits. Over the remote monitor, the script then reads `$2D/$2E`,
+`$1210/$1211`, `$AE/$AF`, `$1C01..` and `$4001..` in bank `ram`, plus the 40-column screen. The next command goes in
+with the monitor command `keybuf`, which takes the text as is (no quotes around it). The only timeout is the cycle
+limit (200 million cycles). A case that reaches it is reported as `HANG`.
+
+Each compile comes out a few bytes different in length, so after `build.sh` the end addresses can differ slightly
+from the table.
