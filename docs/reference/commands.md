@@ -37,7 +37,7 @@ Do this before you put anything into VRAM. The switch changes how the chip addre
 BLOAD "VDCBASIC2H",B0 : SYS DEC("1300")
 ```
 
-The extension occupies `$1300`–`$1BE9` and prints `VDC BASIC V2H INSTALLED`. It stays active until reset. After installation the new keywords are recognised when a line is entered, so they can no longer be part of a variable name (`ATTRIB`, `DISPLAY`, `SYNC` will not work).
+The extension occupies `$1300`–`$1BEC` and prints `VDC BASIC V2H INSTALLED`. It stays active until reset. After installation the new keywords are recognised when a line is entered, so they can no longer be part of a variable name (`ATTRIB`, `DISPLAY`, `SYNC` will not work).
 
 ## Overview
 
@@ -371,7 +371,7 @@ For programs that add their own machine code.
 
 | Location | Use |
 |---|---|
-| `$1300`–`$1BE9` | Code and variables |
+| `$1300`–`$1BEC` | Code and variables |
 | `$02FC`, `$030C`–`$0311` | BASIC vectors taken over (function call, tokenise, list, execute) |
 | `$0A`–`$0E`, `$26`–`$2A` | Work bytes of `VCL`, `VMS`, `VMP` |
 | `$3F`/`$40`, `$77`/`$78` | List and target pointers |

@@ -225,7 +225,7 @@ These came up while reading `vdcbasic.asm` and differ from, or were missing in, 
 11. `DISP`, `ATTR`, `CRSR` accept 0–65535 only (open TODO in the source).
 12. `RTV`, `VTR`, `SWP` with count 0 transfer 65536 bytes; `VCC` with count 0 copies 256 characters.
 13. 64 KiB VRAM is only addressable after `RGO 28,16`; without it, addresses above 16383 mirror the lower 16 KiB even on a 64 KiB machine. Every 64 KiB example must start with it.
-14. The source assembles to `$1300` and writes `vdcbasic2h.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2h, and the tools load `VDCBASIC2F.1300`. v2h is 2282 bytes (`$1300`–`$1BE9`), which leaves 23 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
+14. The source assembles to `$1300` and writes `vdcbasic2h.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2h, and the tools load `VDCBASIC2F.1300`. v2h is 2285 bytes (`$1300`–`$1BEC`), which leaves 20 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
 
 ## 6. Proposed order of work
 

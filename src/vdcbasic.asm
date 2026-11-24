@@ -38,6 +38,7 @@
 ;               vms: list may lie above $4000, command 2 no longer inherits increments from vmc
 ;               vmb: length 0 prints nothing
 ;               vcl: command 13 = syn, with optional register writes
+;               vcl: unknown command no longer hangs (printed INVALID with the KERNAL banked out)
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v2h installed"}
@@ -1488,6 +1489,7 @@ vcl
 
     ;handle unknown command-id
 .vcl_handle_unknown
+    jsr .vcl_done           ; k_primm needs the KERNAL: restore the caller's configuration first
     jsr k_primm
     !pet "invalid"
     !byte 0
