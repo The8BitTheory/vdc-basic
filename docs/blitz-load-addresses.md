@@ -65,7 +65,7 @@ it jumps into the runtime.
 
 ## Test setup
 
-Everything is in [`blitz-load-test/`](blitz-load-test/):
+Everything is in [`blitz-load-test/`](../blitz-load-test/) (in the repository root):
 
 | file | purpose |
 |---|---|
