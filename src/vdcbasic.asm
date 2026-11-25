@@ -43,6 +43,9 @@
 ; v3
 ; 2026          moved to $1c00 (BASIC text now starts at $4001, see boot/boot.bas),
 ;               header with fixed addresses at $1c00-$1c0f
+;               rxv: unpack a VRL stream from bank 0 into VRAM (token $fe41), vcl command 8 = rxv
+;               vms: command 3 = source skip (read position n bytes on, nothing written)
+;               tokens $fe3e-$fe40 (vdl, vdr, vdb) always present, ?syntax error until P2c
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v3 installed"}
@@ -55,9 +58,8 @@
   !source "./src/vdclib.a"  ; macros and code parts
 
 ;build params
-release_vdl = 0
-release_vdr = 0
-release_vdb = 0
+RXV_T_DEFAULT = 14      ; vorläufig, siehe docs/v3/P2b-rxv.md 5
+RXV_TRACK_DST = 0       ; 1: RXV tracks the VRAM address in software instead of reading R18/R19 (docs/v3/P2b-rxv.md 3.4)
 
 ; zp
 linnum  = $16 ; uint16 for POKE, PEEK(), etc.
@@ -112,12 +114,14 @@ MODIFIED8   = $ff ; dummy value
 !if * != $1c03 { !error "header: version not at $1c03" }
     !byte $30               ; $1c03: version, BCD ($30 = v3.0)
 !if * != $1c04 { !error "header: threshold not at $1c04" }
-    !byte 14                ; $1c04: threshold T for block fill (RXV, VDL/VDR/VDB spans), P2b
+    !byte RXV_T_DEFAULT     ; $1c04: threshold T for block fill (RXV, VDL/VDR/VDB spans), P2b
 !if * != $1c05 { !error "header: reserved byte not at $1c05" }
     !byte 0                 ; $1c05: reserved
 !if * != $1c06 { !error "header: rxv_end not at $1c06" }
+rxv_end_ptr
     !word 0                 ; $1c06: RXV, address behind the end token of the last stream, P2b
 !if * != $1c08 { !error "header: rxv_vram not at $1c08" }
+rxv_vram_ptr
     !word 0                 ; $1c08: RXV, VRAM address behind the last byte written or skipped, P2b
 !if * != $1c0a { !error "header: reserved bytes not at $1c0a" }
     !byte 0,0,0,0,0,0       ; $1c0a-$1c0f: reserved
@@ -242,15 +246,8 @@ instruction_strings
     !pet "disP", "attR", "crsR"
     !pet "vcS", "vmP", "zzZ", "vcL"
     !pet "vmS", "vmB"
-!if release_vdl {    
-    !pet "vdL"
-}
-!if release_vdr {
-    !pet "vdR"
-}
-!if release_vdb {
-    !pet "vdB"
-}
+    !pet "vdL", "vdR", "vdB"    ; $fe3e-$fe40, P2c
+    !pet "rxV"                  ; $fe41
     !byte 0 ; terminator
 instruction_ptrs
     !word rgw - 1, rga - 1, rgo - 1
@@ -261,16 +258,13 @@ instruction_ptrs
     !word disp - 1, attr - 1, crsr - 1
     !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
     !word vms -1, vmb -1
-!if release_vdl {
-    !word vdl -1
+    !word vd_stub - 1, vd_stub - 1, vd_stub - 1
+.rxv_entry
+    !word rxv - 1
+!if .rxv_entry - instruction_ptrs != 2 * ($41 - FIRST_0xFE_TOKEN) {
+    !error "instruction table: rxv must be token $fe41"
 }
-!if release_vdr {
-    !word vdr -1
-}
-!if release_vdb {
-    !word vdb -1
-}
-    
+
 function_strings
     !pet "rgD", "vmD"
     !byte 0 ; terminator
@@ -728,7 +722,7 @@ vms_execute
 +   ldy #0
     sty offset_1
 
-    ; read vms-command byte (1=block copy with target-addr-increase and length, 2=OR with target-addr increase (length implicitly 1))
+    ; read vms-command byte (1=block copy with target offset and length, 2=rectangle, 3=source skip, 8=half byte)
     lda (arg_address),y
     iny
 
@@ -736,9 +730,12 @@ vms_execute
     beq .vms_block_copy_1
     cmp #2
     beq .vms_block_copy_2
+    cmp #3
+    beq .vms_source_skip
     cmp #8
-    beq .vms_rgo
-    jmp .vms_invalid
+    bne +
+    jmp .vms_rgo
++   jmp .vms_invalid
 
 ;------- block copy
 .vms_block_copy_1
@@ -820,6 +817,21 @@ vms_execute
     jmp .vms_check_more
 
 
+;--------- source skip: read position += n (word), nothing written (clipping at the viewport edge)
+.vms_source_skip
+    clc
+    lda (arg_address),y
+    adc vms_block_source
+    sta vms_block_source
+    iny
+    lda (arg_address),y
+    adc vms_block_source+1
+    sta vms_block_source+1
+    iny
+    sty offset_1
+    ldy vms_block_source    ; A = high byte
+    jmp .vms_set_source
+
 ;--------- OR value
 .vms_rgo
     jsr io_on
@@ -890,6 +902,7 @@ vms_execute
     bcc +
     inc vms_block_source+1
 +   lda vms_block_source+1
+.vms_set_source             ; A = high, Y = low byte of the read position -> R32/R33
     ldx #32
     jsr AY_to_vdc_regs_Xp1
 
@@ -1314,11 +1327,9 @@ vcs
 ;  4: vmf with 3 parameters
 ;  5: vmf with 5 parameters
 ;  6: vmw with 2 parameters
-;  7: vmw with 4 parameters (reserved, not yet implemented)
-;  8: vmo with 2 parameters
-;  9: vmo with 4 parameters (reserved)
-; 10: vma with 2 parameters
-; 11: vma with 4 parameters (reserved)
+;  7: vmw with 4 parameters (vaddr, byte, reps, step)
+;  8: rxv with 2 parameters (src, dst)
+;  9-11: reserved
 ; 12: vms with 3 parameters
 ; 13: syn: n, then n pairs of register, value (n = 0: just wait for end of text window)
 ; ff: sleep with 1 parameter (jiffies to sleep)
@@ -1494,6 +1505,8 @@ vcl
     ; VMS (12): source, target, address of command list (bank 0)
 .vcl_check_vms
     lda vcl_command_id
+    cmp #8
+    beq .vcl_rxv
     cmp #12
     bne .vcl_handle_unknown
     lda arg_address         ; VMS uses arg_address and offset_1 for its own list: keep VCL's
@@ -1514,6 +1527,11 @@ vcl
     sta arg_address
     jmp .vcl_next_command
 
+    ; RXV (8): source (bank 0), target. memory configuration is $3e, as rxv_execute expects
+.vcl_rxv
+    jsr rxv_execute
+    jmp .vcl_next_command
+
     ;handle unknown command-id
 .vcl_handle_unknown
     jsr .vcl_done           ; k_primm needs the KERNAL: restore the caller's configuration first
@@ -1528,55 +1546,222 @@ vcl
 
 }
 
-!if release_vdl {
-; draw line (x1,y1,x2,y2,color)
-vdl
-    rts
-}
+; VDL, VDR, VDB (tokens $fe3e-$fe40): implemented in P2c (docs/v3/P2c-draw.md), until then ?SYNTAX ERROR
+vd_stub
+    ldx #11                 ; runs with $ff00 = 0 like execute_instruction
+    jmp ($0300)             ; BASIC error vector
 
-!if release_vdr {
-; draw rectangle (x1,y1,x2,y2,<color>,<fill>)
-vdr
-    jsr complex_instruction_parse3args
-    
-    ;y2
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; rxv - unpack a VRL stream (docs/reference/vrl-format.md) from bank 0 into VRAM
+;  RXV src,dst   src: first token in bank 0 (not the file header), dst: VRAM address
+;  afterwards $1c06 = address behind the end token, $1c08 = VRAM address behind the last byte
+;  written or skipped. spec: docs/v3/P2b-rxv.md
+;  the stream must not lie in $d000-$dfff or $ff00-$ff04 (read with $ff00 = $3e)
+!zone rxv {
+rxv_T   = $1c04             ; threshold T: runs with L < T by CPU, others by block fill
+.ptr    = arg1              ; stream base, moved on after >= 128 bytes; Y = offset (< 128 at a token)
+.cnt    = arg3              ; L - 1 for a block fill, skip length
+.y      = arg5              ; Y saved around vdc_do_YYAA_cycles and skip
+.dst    = arg2              ; RXV_TRACK_DST: VRAM address of the next byte
+
+rxv
+    jsr b_parse_uint16
+    sty arg1
+    sta arg1 + 1
     jsr b_parse_comma_uint16
-    sty arg4
-    sta arg4+1
+    sty arg2
+    sta arg2 + 1
+    jsr remember_mem_conf   ; $ff00 = $3e, caller's configuration kept for the exit
 
-    ;color
-    jsr b_skip_comma
-    jsr b_parse_uint8_to_X
-    stx arg5
-
-    ;assume fill for now
-    ;jsr chrget
-
-    ;line width in bytes (usually 80)
-    ldx #1
+; entry with arg1 = src, arg2 = dst, $ff00 = $3e (used by VCL); changes arg1-arg5
+rxv_execute
+    ldx #24                 ; block mode = fill, keep the other bits of R24
     jsr vdc_reg_X_to_A
-    sta arg6
-
-    ;multiply y1 with line width
-    ;add x1 to that
-    ; this is the start-address -> arg1
-
-    ;color is arg5 --> arg2
-
-    ;subtract x1 from x2
-    ; this is the length --> arg3
-
-    ;subtract y1 from y2
-    ; this is the nr of repetitions
-
-    ;address-increment is arg6
-
-    rts
+    and #$7f
+    jsr A_to_vdc_reg_X
+    lda rxv_T               ; token threshold: run token b goes to the CPU if b < T + $7e
+    clc
+    adc #$7e
+    bcs +
+    cmp #$fe
+    bcc ++
++   lda #$fe                ; T >= 128: all short runs by CPU
+++  sta .ttok
+    ldy .dst
+    lda .dst + 1
+    jsr AY_to_vdc_regs_18_19
+    ldx #31                 ; R31 stays selected between the tokens
+    stx vdc_reg
+    ldy #0
+.next
+    cpy #$80
+    bcc .tok
+    tya                     ; move the base on so that Y stays small
+    clc
+    adc .ptr
+    sta .ptr
+    bcc +
+    inc .ptr + 1
++   ldy #0
+.tok
+    lda (.ptr), y
+    iny
+    tax
+    beq .end
+    bmi .run
+    ; literal: X = n (1..127) bytes follow
+!if RXV_TRACK_DST {
+    jsr .track_x
 }
+-     lda (.ptr), y
+      iny
+      +vdc_sta
+      dex
+      bne -
+    beq .next               ; always
 
-; draw box 4 x/y pairs
-vdb
-    rts
+.end                        ; Y points behind the $00
+    tya
+    clc
+    adc .ptr
+    sta rxv_end_ptr
+    lda .ptr + 1
+    adc #0
+    sta rxv_end_ptr + 1
+!if RXV_TRACK_DST {
+    lda .dst
+    sta rxv_vram_ptr
+    lda .dst + 1
+    sta rxv_vram_ptr + 1
+} else {
+    ldx #19                 ; waits for a running block fill
+    jsr vdc_reg_X_to_A
+    sta rxv_vram_ptr
+    dex
+    jsr vdc_reg_X_to_A
+    sta rxv_vram_ptr + 1
+}
+    jmp complex_instruction_shared_exit
+
+.run                        ; X = b ($80..$ff)
+    cpx #$fe
+    bcs .skip_or_long
+.ttok = * + 1
+    cpx #MODIFIED8          ; b < T + $7e: L < T
+    bcs .run_fill
+    txa                     ; C = 0: A = b - $7e = L
+    sbc #$7d
+    tax
+    lda (.ptr), y           ; value
+    iny
+.cpu_run                    ; A = value, X = L >= 1
+!if RXV_TRACK_DST {
+    pha
+    jsr .track_x
+    pla
+}
+-     +vdc_sta
+      dex
+      bne -
+    beq .next               ; always
+
+.run_fill                   ; C = 1, X = b: L - 1 = b - $7f (1..126)
+    txa
+    sbc #$7f
+    sta .cnt
+    lda #0
+    sta .cnt + 1
+    beq .fill_value         ; always
+
+.skip_or_long
+    bne .long
+    ; skip: $fe lo hi, VRAM address += n
+    lda (.ptr), y
+    sta .cnt
+    iny
+    lda (.ptr), y
+    sta .cnt + 1
+    iny
+    sty .y
+!if RXV_TRACK_DST {
+    clc
+    lda .dst
+    adc .cnt
+    sta .dst
+    tay
+    lda .dst + 1
+    adc .cnt + 1
+    sta .dst + 1
+    ldx #18
+} else {
+    ldx #19                 ; read the current address: waits for a running block fill
+    jsr vdc_reg_X_to_A
+    clc
+    adc .cnt
+    tay
+    dex
+    jsr vdc_reg_X_to_A      ; keeps C
+    adc .cnt + 1
+}
+    jsr AY_to_vdc_regs_Xp1  ; R18 = A, R19 = Y
+    jmp .reselect
+
+.long                       ; $ff lo hi value: L = hi * 256 + lo (0 = 65536)
+    lda (.ptr), y
+    tax                     ; lo
+    iny
+    lda (.ptr), y
+    iny
+    sta .cnt + 1
+    bne .long_fill          ; L >= 256: always block fill
+    txa
+    beq .long_fill          ; L = 65536
+    cpx rxv_T
+    bcs .long_fill          ; L >= T
+    lda (.ptr), y
+    iny
+    jmp .cpu_run
+.long_fill                  ; X = lo, .cnt + 1 = hi: .cnt = L - 1
+    txa
+    bne +
+    dec .cnt + 1            ; lo = 0 borrows (65536 -> $ffff)
++   dex
+    stx .cnt
+.fill_value
+    lda (.ptr), y           ; value
+    iny
+    ; block fill: A = value, .cnt = L - 1
+    +vdc_sta                ; first byte, also sets the fill value
+    sty .y
+!if RXV_TRACK_DST {
+    sec                     ; .dst += L
+    lda .dst
+    adc .cnt
+    sta .dst
+    lda .dst + 1
+    adc .cnt + 1
+    sta .dst + 1
+}
+    lda .cnt
+    ldy .cnt + 1
+    jsr vdc_do_YYAA_cycles  ; R30: lo (if not 0), then hi times 0 (= 256); does not wait for the end
+.reselect
+    ldx #31
+    stx vdc_reg
+    ldy .y
+    jmp .next
+
+!if RXV_TRACK_DST {
+.track_x                    ; .dst += X
+    txa
+    clc
+    adc .dst
+    sta .dst
+    bcc +
+    inc .dst + 1
++   rts
+}
+}
 
 ; dummy entry to skip token $fe3a
 zzz
@@ -1603,7 +1788,7 @@ vmp_length          !byte 0 ; length of the text to print
 vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
 vms_count_hi        !byte 0     ; VMS: number of commands, high byte
 vms_saved_cr        !byte 0     ; VMS: memory configuration of the caller
-vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,0,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8-11 not implemented, 12 = vms. 13 = syn is handled separately (variable length)
+vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,3,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8 = rxv, 9-11 not implemented, 12 = vms. 13 = syn is handled separately (variable length)
 
 vms_block_source    !word 0;
 vmp_bank            !byte 0

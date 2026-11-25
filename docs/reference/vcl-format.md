@@ -14,6 +14,7 @@ Each entry starts with a type byte. All parameters are 16-bit words, low byte fi
 | 5 | 11 | vaddr, byte, count, reps, step | `VMF` with 5 parameters |
 | 6 | 5 | vaddr, byte | `VMW vaddr,byte` |
 | 7 | 9 | vaddr, byte, reps, step | `VMW` repeated *reps* times, *vaddr* growing by *step* |
+| 8 | 5 | src, dst | `RXV src,dst` (v3) |
 | 12 | 7 | source, target, list address | `VMS source,target,addr` |
 | 13 | 3 + 4·n | n, then n pairs reg, value | `SYN reg,value,...` (n = 0: plain `SYN`) |
 
@@ -24,7 +25,8 @@ Notes:
 - Type 7 has no BASIC counterpart. It draws dotted or vertical lines of single bytes.
 - *n* (type 13): the low byte is the number of pairs, 0 to 255, so an entry can be longer than 256 bytes. *reg* and *value*: only the low byte counts. With n = 0 the entry only waits, like plain `SYN`. With n > 0 it waits until the end of the text window (start of the vertical border area), then writes all registers one after the other with interrupts disabled. A page flip through R12/R13 therefore happens in one piece in the border.
 - High byte of *n* (type 13): 0 waits like `SYN`, for the *start* of the border; if the entry is reached while the border is already showing, that is almost a whole frame. Any other value only waits if the text window is being drawn, and continues at once inside the border. That halves the average wait, about 10 ms → 4 ms in PAL, but two such entries can pass in the same frame, and an entry reached in the last moments of the border may finish its writes after the next frame has begun. For a page flip, choose page addresses whose low bytes are equal, so that only one register changes.
-- Types 8–11 and all types above 13 are not implemented. They print `INVALID` and end the list.
+- Type 8 (v3): *src* is the address of a [VRL stream](vrl-format.md) in bank 0, *dst* the VRAM address. The entry costs about 270 CPU cycles before the unpacking starts, a `RXV` statement in BASIC several thousand; use lists for many small streams.
+- Types 9–11 and all types above 13 are not implemented. They print `INVALID` and end the list. (Type 8 was once planned for `VMO`; since v3 it is `RXV`.)
 
 ## Example
 

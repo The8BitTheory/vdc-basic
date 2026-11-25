@@ -172,25 +172,25 @@ Kosten: Ein VCL-Eintrag kostet etwa 270 CPU-Zyklen bis zum Aufruf (5 Byte lesen 
 - Standardwert im Binary: **14** (Platzhalter aus dem Kostenmodell von P1, `vrl.py threshold()` mit den Platzhaltern). Ersetzen durch T aus der P0-Messung auf **echter Hardware** (`test/bench/results/c128-*.json`, `engine.T`); T aus VICE ist nicht übertragbar (P0, Abschnitt 2). Im Quelltext als `RXV_T_DEFAULT = 14 ; vorläufig, siehe docs/v3/P2b-rxv.md 5`.
 - Kein Fake-Register über `RGW`: `RGW` schreibt VDC-Register; ein Pseudo-Register 253 wäre eine Sonderbehandlung im schnellen Pfad. `POKE` reicht.
 
-## 6. Zyklenschätzung (CPU-Zyklen bei 2 MHz, VDC sofort bereit)
+## 6. Zyklen (CPU-Zyklen, VDC sofort bereit)
 
-Aus dem Ablauf 3.1 gezählt; nach der Umsetzung aus dem Listing nachzählen und in dieser Tabelle ersetzen.
+Aus dem Listing (`src/vdcbasic.asm`, Zone `rxv`, `RXV_TRACK_DST = 0`) nachgezählt (Stand Umsetzung) und mit VICE verglichen. Spalte „VICE“: `test/rxv/cycles.md`, 1 MHz, R6 = 0 (keine sichtbaren Zeilen, die CPU wartet nicht auf den VDC), IRQ gesperrt, Minimum aus 8 Läufen – **vorläufig**, siehe unten.
 
-| Pfad | fest | je Byte | Bemerkung |
-|---|---|---|---|
-| Token lesen + verzweigen (`tok`) | ≈ 20 | – | inkl. `cpy #$80`; Nachziehen von `rxv_ptr` ≈ 20 je ≥ 128 Strombytes |
-| Literal | – | 22 | `lda (zp),y / iny / bit / bpl / sta / dex / bne` |
-| Lauf per CPU | ≈ 24 | 15 | |
-| Lauf per Block fill | ≈ 100 bis Ausgabe | VDC | danach arbeitet der VDC allein; die CPU wartet erst beim nächsten Datenzugriff |
-| jede weitere volle Seite (L > 256) | ≈ 12 + Wartezeit | – | die CPU wartet hier auf den vorigen Fill |
-| langer Lauf (Zuschlag) | ≈ 45 | – | |
-| Skip | ≈ 145 | – | 2 Registerlesungen, 16-Bit-Addition, 2 Registerschreibungen |
-| Ende | ≈ 80 | – | Zeiger in den Kopf |
-| Aufruf-Setup (`rxv_execute`) | ≈ 120 | – | ohne BASIC-Parser |
+| Pfad | Listing fest | Listing je Byte | VICE | Bemerkung |
+|---|---|---|---|---|
+| Token lesen + verzweigen (`tok`) | 18 (Literal) / 19 (sonst) | – | – | `cpy #$80 / bcc`, `lda (zp),y / iny / tax / beq / bmi`; Nachziehen von `rxv_ptr` 19 (+ 4 bei Übertrag) je ≥ 128 Strombytes |
+| Literal | 20 (inkl. `tok`) | 22 (+1 bei Seitenwechsel im Strom) | 18,9 fest, 23,1 je Byte | `lda (zp),y / iny / bit / bpl / sta / dex / bne` |
+| Lauf L < T per CPU | 42 (inkl. `tok`) | 15 | 42,0 fest, 15,0 je Byte | `cpx #$fe / cpx #T+$7e` (selbstmodifiziert) / L berechnen / Wert lesen |
+| Lauf L ≥ T per Block fill (kurzer Lauf) | 118 (inkl. `tok`) bis Reg 30 | VDC | 119 (L = 14, inkl. Warten am Ende) | danach arbeitet der VDC allein; die CPU wartet erst beim nächsten Datenzugriff |
+| langer Lauf (`$FF`), L ≥ 256 | 136 (inkl. `tok`) | 15 je weitere volle Seite + Wartezeit | 269 (L = 300) | die CPU wartet je Seite auf den vorigen Fill |
+| Skip | 186 (inkl. `tok`) | – | 186 | 2 Registerlesungen, 16-Bit-Addition, 2 Registerschreibungen, `$D600 = 31` |
+| Ende | 118 (inkl. `tok`, `complex_instruction_shared_exit`) | – | – | Zeiger in den Kopf, R18/R19 lesen |
+| Aufruf-Setup (`rxv_execute`) | 147 | – | – | ohne BASIC-Parser; Setup + Ende gemessen 251 (Stoppuhr ohne die 12 Zyklen des Exits) |
+| VCL-Eintrag Typ 8 bis `rxv_execute` | ≈ 270 | – | – | geschätzt (4) |
 
-Für `vrl.py stats` (P1, 8.2) ergibt das: `tok` 20, `cpu_lit_byte` 22, `cpu_byte` 15, `cpu_run_fixed` 24, `new_addr` 145, `fill_fixed` 100 + VDC-Anlauf, `fill_byte` und `fill_chunk` aus P0. Diese Werte in die P0-JSON (`engine`) bzw. als Platzhalter in `vrl.py` übernehmen ist Teil der Abnahme (eigener kleiner Commit im Engine-Repo, nach Rücksprache).
+Für `vrl.py stats` (P1, 8.2) ergibt das: `tok` 19, `cpu_lit_byte` 22, `cpu_byte` 15, `cpu_run_fixed` 23 (42 − `tok`), `new_addr` 167 (186 − `tok`), `fill_fixed` 99 + VDC-Anlauf, `fill_byte` und `fill_chunk` aus P0. Diese Werte in die P0-JSON (`engine`) bzw. als Platzhalter in `vrl.py` übernehmen ist Teil der Abnahme (eigener kleiner Commit im Engine-Repo, nach Rücksprache) – **offen**.
 
-In VICE ist der Reg-31-Zugriff im sichtbaren Bereich mit 43 Takten Busy modelliert; Zyklenmessungen in VICE sind deshalb nur relativ (Pfade untereinander) aussagekräftig.
+In VICE ist der VDC-Zugriff vereinfacht modelliert; Zyklenmessungen in VICE sind deshalb nur relativ (Pfade untereinander) aussagekräftig. Bei 2 MHz (`--fast`) begrenzt in VICE der VDC: Literal 23,2 und CPU-Lauf 23,8–25,3 CPU-Zyklen je Byte statt 22 bzw. 15 (`cycles.md`). Messung auf echter Hardware steht aus.
 
 ## 7. Tests
 
@@ -330,4 +330,41 @@ Ein Guide-Kapitel zu `RXV` folgt mit P8.
 
 ## 10. Befunde
 
-(wird bei der Umsetzung ausgefüllt: Schritt 0, Hardware 3.3/3.4)
+Stand Umsetzung 2026-11-25 (VICE 3.10, `x128 -VDC64KB`).
+
+- **Schritt 0 (Monitor-Bank `vdc`):** erledigt. Nach `bank vdc` lesen und schreiben `m`, `>`, `bload "datei" 0 0000` und `bsave "datei" 0 0000 ffff` den VRAM (64 KB, ohne Ladeadresse). Der Harness benutzt `bload`/`bsave` statt `load`/`save` (kein Zwei-Byte-Kopf). RAM 0 über `bank ram00`. Die Rückfallebene über `VTR` wird nicht gebraucht.
+- **R28 beim Start:** `RGD(28)` = `$2F` (Bit 4 = 0) auch mit `-VDC64KB`; der Kernal schaltet die 64-KB-Adressierung nicht ein. Der Treiber setzt deshalb `RGO 28,16` (nach dem Lesen).
+- **3.3 Reg 30 = 0 (Hardware):** offen. In VICE bestanden (`test/vdc-reg30-zero.bas`, Gruppe R `lrun256`…`lrun65536`). Auf einem C128 `vdc-reg30-zero.bas` laufen lassen.
+- **3.4 Reg 18/19 lesbar nach Fill und nach Reg-31-Schreiben (Hardware):** offen. In VICE bestanden (`fill-skip`, `lit-skip`, alle Zufallsvektoren mit Skips). Auf einem C128 `test/rxv-hw.bas` laufen lassen. Die Rückfallebene `RXV_TRACK_DST = 1` ist umgesetzt (+28 Byte) und besteht dieselben Tests (`run_rxv.py --bin … --sym …`, `VDCBASIC=… test/run.sh test/rxv*.bas test/vcl-rxv.bas`).
+- **Ergebnis:** `run_rxv.py` 398/398 Vektoren bytegleich über den ganzen VRAM, `$1C06`/`$1C08` richtig, interpretiert und kompiliert (`-c`); Gruppe R für alle acht T gleich. Gegenprobe mit absichtlich falschem Binary: Abweichungen werden gemeldet.
+- **Größe:** `RXV` 267 Byte (`rxv` bis `zzz`), VCL-Typ 8 10 Byte, Token und Zeiger 5 Byte: 282 Byte ≤ 400. Dazu Stub und Tabelleneinträge `VDL`/`VDR`/`VDB` 20 Byte, `VMS`-Typ 3 (11) 34 Byte. Code endet bei `$2654`.
+
+Abweichungen von dieser Spezifikation:
+
+- `rxv_ttok` ist keine Variable, sondern der Operand eines selbstmodifizierten `cpx #` (2 statt 4 Zyklen je Lauf-Token). `rxv_len` (`arg4`) entfällt: der lange Lauf hält lo in X und hi direkt in `rxv_cnt + 1`. Der kurze Lauf per Block fill berechnet `rxv_cnt` = b − `$7F` ohne Umweg.
+- `vrl.py` kommt aus `tools/` dieses Repositorys (kanonische Kopie, Commit `4fd03ff`); `DBE_TOOLS` hat Vorrang, wenn gesetzt.
+- Harness: Die Ströme kommen nicht über eine Datei `RXVDATA`, sondern je Vektor per Monitor (`bload` am Haltepunkt `$1BFE`) an ihre Adresse; der Treiber liest src/dst/T aus einem Parameterblock bei `$1BF0` statt aus `DATA`. Dadurch passen beliebig viele und lange Ströme (Gruppe X, `long-stream`) ohne Platzproblem. Für U > 65536 (Strom `skip0`: Skip 65536 vor Daten), das `vrl.decode` ablehnt, rechnet der Harness modulo 65536 selbst.
+- Zusätzlich Gruppe C (Zeitmessung, 2 × 8 × 10 Vektoren, mit R6 = 25 und R6 = 0) und `--fast`.
+- `rand-0`…`rand-4` haben höchstens 400 Elemente (sonst bis 3000), damit `rxv-hw.bas` klein bleibt.
+- `rxv-errors.bas` ist auf vier Dateien verteilt (`rxv-errors.bas`, `-range`, `-extra`, `-one`): im Kompilat funktionieren nach einem mit `TRAP` abgefangenen Fehler keine Erweiterungen mehr (README, P2a 9).
+- `BASIC V7.0 VDC.txt` bekommt neben `RXV;fe41;` schon `VDL;fe3e;`, `VDR;fe3f;`, `VDB;fe40;` (P2a 2.3: „mit P2b/P2c“), weil der Tokeniser von VDC-BASIC sie jetzt kennt (Stub mit `?SYNTAX ERROR`, Test `vd-stub.bas`).
+- `test/rxv/cycles.md` enthält 1 MHz und 2 MHz, je mit R6 = 0 und R6 = 25.
+
+## 11. VMS-Listenbefehl 3: source skip
+
+Nutzerentscheidung (Plan 0.2, Abschnitt 9): Sprite-Clipping am Viewport-Rand. Die Engine kürzt VMS-Listen beim Kopieren in den Puffer; für die weggelassenen Einträge muss die Leseposition in den Sprite-Daten trotzdem weiterlaufen.
+
+| Byte | Inhalt |
+|---|---|
+| 0 | 3 |
+| 1–2 | n (Wort, Low/High) |
+
+Länge 3 Byte. Wirkung: Leseposition (`vms_block_source`) += n (16 Bit, Umlauf), danach R32/R33 = neue Leseposition; nichts wird geschrieben. n = 0 ändert nichts. Typ 3 war frei (vorhanden: 1 Lauf kopieren, 2 Rechteck, 8 halbes Byte); 4–7 und 9+ bleiben frei.
+
+Hinweise:
+
+- Typ 2 führt die Leseposition nicht mit (nur als einziger Eintrag gedacht); Typ 3 daher nur mit Typ 1 und 8 mischen.
+- Kosten: etwa 100 CPU-Zyklen (Liste lesen, 16-Bit-Addition, R32/R33 schreiben) plus die Schleife je Eintrag; ersetzt beliebig viele weggelassene Einträge.
+- Umsetzung: `.vms_source_skip` in `src/vdcbasic.asm` (34 Byte inkl. Verzweigung), Sprung auf den gemeinsamen Schluss von Typ 8 (`.vms_set_source`).
+- Tests: `test/vms-source-skip.bas` (mit Typ 1 und 8, n = 0, n > 255), `test/vcl-vms-source-skip.bas` (innerhalb VCL-Typ 12, Liste über `$4000`), `test/rxv-examples.bas` (Beispiel der Referenz).
+- Doku: `docs/reference/vms-format.md` (Tabelle, Abschnitt „Clipping: type 3“ mit Beispiel), README (Versionsgeschichte).

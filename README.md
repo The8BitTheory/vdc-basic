@@ -1,6 +1,6 @@
 # VDC-BASIC
 
-A BASIC 7.0 extension for the Commodore 128 that opens up the 80-column chip (VDC 8563/8568). It adds 23 instructions and 2 functions for reading and writing VDC registers and video RAM, and for filling, copying and blitting inside video RAM at the speed of the chip.
+A BASIC 7.0 extension for the Commodore 128 that opens up the 80-column chip (VDC 8563/8568). It adds 24 instructions and 2 functions for reading and writing VDC registers and video RAM, for filling, copying and blitting inside video RAM at the speed of the chip, and (v3) for unpacking run-length coded pictures from CPU RAM into video RAM (`RXV`).
 
 Current version: **v3** (in development), file `vdcbasic3.bin`, load address `$1C00`. BASIC programs start at `$4001`; the boot loader `boot/boot.bas` (on disk as `BOOT`) sets this up, loads and installs VDC-BASIC:
 
@@ -15,8 +15,8 @@ The guide and its listings still describe v2h (`vdcbasic2h.bin` at `$1300`, `BLO
 | Bank 0 | Use |
 |---|---|
 | `$1300`–`$1BFF` | free (e.g. for lists that must lie below `$4000`) |
-| `$1C00`–`$1C0F` | header with fixed addresses: `$1C00` `JMP install` (`SYS 7168`), `$1C03` version (`$30` = v3.0), `$1C04` block fill threshold, `$1C06`–`$1C09` results of `RXV` (planned), the rest reserved |
-| `$1C10`–`$2505` | code and variables of VDC-BASIC; up to `$3FFF` is reserved for it |
+| `$1C00`–`$1C0F` | header with fixed addresses: `$1C00` `JMP install` (`SYS 7168`), `$1C03` version (`$30` = v3.0), `$1C04` block fill threshold T of `RXV` (default 14, provisional), `$1C06`/`$1C07` address behind the end token of the last `RXV` stream, `$1C08`/`$1C09` VRAM address behind the last byte `RXV` wrote or skipped, the rest reserved |
+| `$1C10`–`$2654` | code and variables of VDC-BASIC; up to `$3FFF` is reserved for it |
 | `$4000` | 0 (the byte before the program text) |
 | `$4001`– | BASIC program, or a Blitz! program with runtime image 2 |
 
@@ -32,7 +32,7 @@ This file is the technical view: what is in the repository, how to build and tes
 |---|---|
 | [Programmer's Guide](docs/README.md) | 14 chapters that build on each other, from the first register write to a small game. Every listing is tested. |
 | [Command reference](docs/reference/commands.md) | All commands with syntax, ranges and limits |
-| [VCL list format](docs/reference/vcl-format.md), [VMS list format](docs/reference/vms-format.md) | Byte layout of command lists and sprite lists |
+| [VCL list format](docs/reference/vcl-format.md), [VMS list format](docs/reference/vms-format.md), [VRL format](docs/reference/vrl-format.md) | Byte layout of command lists, sprite lists and the run-length streams of `RXV` |
 | [Converter](docs/tools/README.md) | Browser page and command line tool that turn pictures into files for VDC-BASIC programs; file formats |
 
 ## Repository layout
@@ -63,10 +63,11 @@ This writes `vdcbasic3.bin` into the current directory (`acme -l build/vdcbasic3
 
 Things to know before changing the code:
 
-- **Size.** The code must end below `$4000`, where BASIC ROM and the program text begin; an assertion at the end of the source checks this. v3 occupies `$1C00`–`$2505`; 6906 bytes are left.
+- **Size.** The code must end below `$4000`, where BASIC ROM and the program text begin; an assertion at the end of the source checks this. v3 occupies `$1C00`–`$2654`; 6571 bytes are left.
 - **Load address and header.** `* = $1c00` near the top of the source, followed by the 16-byte header. Its addresses are an interface (programs `PEEK` and `POKE` them); assertions check that every field stays where it is.
 - **BASIC ROM.** Parts of the code run with the BASIC ROM mapped in and must therefore stay below `$4000`; the macro `vdclib_assert_below_basic_rom` checks this at assembly time.
-- **Unfinished parts.** `VDL`, `VDR` and `VDB` (line, rectangle, box) exist as stubs behind the build switches `release_vdl`, `release_vdr`, `release_vdb` and are switched off. Token `$FE $3A` is a placeholder and must stay in the table so that the later tokens keep their numbers.
+- **Unfinished parts.** `VDL`, `VDR` and `VDB` (line, rectangle, box, tokens `$FE $3E`–`$FE $40`) are always in the token table and point to a common stub that gives `?SYNTAX ERROR` until they are implemented (P2c); `RXV` therefore keeps token `$FE $41`. Token `$FE $3A` is a placeholder and must stay in the table so that the later tokens keep their numbers.
+- **Build switch `RXV_TRACK_DST`.** 0 (default): at a skip `RXV` reads the current VRAM address from R18/R19. 1: it keeps the address in software instead (fallback in case real hardware does not allow reading R18/R19 after a block fill, `docs/v3/P2b-rxv.md` 3.4). Both variants pass the same tests.
 
 ## How it hooks into BASIC
 
@@ -84,11 +85,13 @@ BASIC 7.0 reserves the prefixes `$FE` (instructions) and `$CE` (functions) for t
 | Tokens | Keywords |
 |---|---|
 | `$FE $27`–`$FE $3D` | `RGW RGA RGO VMW VMA VMO VMF VMC RTV VTR VCC SWP RST SYN DISP ATTR CRSR VCS VMP` (placeholder) `VCL VMS VMB` |
+| `$FE $3E`–`$FE $40` | `VDL VDR VDB` (v3, `?SYNTAX ERROR` until P2c) |
+| `$FE $41` | `RXV` (v3) |
 | `$CE $0B`, `$CE $0C` | `RGD`, `VMD` |
 
 A program that contains the new tokens lists and runs correctly only while VDC-BASIC is installed.
 
-The commands that move blocks of memory switch to a configuration with RAM bank 0 and I/O visible (`$3E` in the MMU register) and restore the caller's configuration afterwards. That is why all RAM addresses given to `RTV`, `VTR`, `SWP`, `VCC`, `VMB`, `VCL` and `VMS` refer to bank 0, whatever `BANK` says.
+The commands that move blocks of memory switch to a configuration with RAM bank 0 and I/O visible (`$3E` in the MMU register) and restore the caller's configuration afterwards. That is why all RAM addresses given to `RTV`, `VTR`, `SWP`, `VCC`, `VMB`, `VCL`, `VMS` and `RXV` refer to bank 0, whatever `BANK` says.
 
 The zero page and other locations the extension uses are listed at the end of the [command reference](docs/reference/commands.md#memory-used-by-vdc-basic).
 
@@ -125,7 +128,8 @@ With v3 the compiled program must use runtime image 2, which loads at `$4001`, a
 ## Known limits
 
 - `DISP`, `ATTR` and `CRSR` accept 0–65535 only; negative values are not wrapped.
-- `VCL` entry types 8–11 (`VMO`/`VMA`) and a "sleep" entry are planned in the source comments and not implemented.
+- `VCL` entry types 9–11 are reserved and not implemented (type 8 is `RXV` since v3; the former plan for `VMO`/`VMA` entries is dropped), as is the "sleep" entry mentioned in the source comments.
+- `RXV` does not check its stream: a stream without end token, a stream in `$D000`–`$DFFF` or `$FF00`–`$FF04`, or `src` pointing at the file header instead of the stream give undefined results.
 - Parameters are checked for their range and for nothing else: no clipping, no check that a target lies inside the picture.
 - The repetition count of `VMC`/`VMF` is one byte; 0 means 256.
 
@@ -142,7 +146,7 @@ The guide collects the practical consequences in [chapter 13](docs/13-speed-and-
 | v2e | May 2025 | `VCS` and `VMP`: text in bitmap modes |
 | v2f | Jun 2025 | `VMC`: negative steps |
 | v2g | Oct 2025 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
-| v3 | (in development) | Moved to `$1C00`, header with fixed addresses at `$1C00`–`$1C0F`, BASIC text at `$4001`, boot loader `BOOT`. Same commands as v2h. |
+| v3 | (in development) | Moved to `$1C00`, header with fixed addresses at `$1C00`–`$1C0F`, BASIC text at `$4001`, boot loader `BOOT`. New: `RXV` (unpack a VRL stream from bank 0 into VRAM, threshold T at `$1C04`), `VCL` entry type 8 (`RXV`), `VMS` entry type 3 (source skip, for clipping sprites at the edge of a viewport); tokens for `VDL`/`VDR`/`VDB` reserved. |
 | v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0; `VCL` with an unknown entry type no longer hangs. New: `VCL` entry type 13 (`SYN` with register/value pairs, e.g. an atomic page flip inside a list), optionally without waiting when the border has already begun. Tests, guide and reference added. |
 
 ## Credits

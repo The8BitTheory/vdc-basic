@@ -1,6 +1,6 @@
 # Command reference
 
-VDC-BASIC v2h. 23 instructions and 2 functions, grouped by what they work on.
+VDC-BASIC v2h: 23 instructions and 2 functions (v3: 24, plus the reserved VDL/VDR/VDB/VDM tokens), grouped by what they work on. Parts marked **(v3)** need VDC-BASIC v3 (`vdcbasic3.bin` at `$1C00`, see the [README](../../README.md)): `RXV`, `VCL` entry type 8 and `VMS` entry type 3.
 
 Everything stated here was either checked by a listing in `test/` or read directly from `src/vdcbasic.asm`.
 
@@ -18,6 +18,8 @@ Everything stated here was either checked by a listing in `test/` or read direct
 | [ … ] | Optional |
 
 All numeric parameters are ordinary BASIC expressions. A value outside its range gives `?ILLEGAL QUANTITY ERROR`.
+
+No VDC-BASIC command changes the interrupt flag (except `SYN` with pairs, which writes its registers with interrupts off). An interrupt routine of your own must not access the VDC while a command runs: it would select another register in `$D600`, and the next data byte of the command, for example of `RXV` or `RTV`, would go into that register.
 
 ### 16 KiB and 64 KiB
 
@@ -48,6 +50,7 @@ The extension occupies `$1300`–`$1BF6` and prints `VDC BASIC V2H INSTALLED`. I
 | [`VMF`](#vmf) | Fill VRAM: a run of bytes or a rectangle |
 | [`VMC`](#vmc) | Copy inside VRAM: a run of bytes or a rectangle (the blit) |
 | [`RTV`](#rtv) [`VTR`](#vtr) [`SWP`](#swp) | CPU RAM → VRAM, VRAM → CPU RAM, exchange |
+| [`RXV`](#rxv) | Unpack a run-length coded picture (VRL stream) from CPU RAM into VRAM (v3) |
 | [`VCC`](#vcc) | Copy 8-byte character patterns into the VDC character set |
 | [`DISP`](#disp-attr-crsr) [`ATTR`](#disp-attr-crsr) [`CRSR`](#disp-attr-crsr) | Set display start, attribute start, cursor address |
 | [`SYN`](#syn) | Wait for the vertical blank, optionally then write registers |
@@ -240,6 +243,35 @@ VCC DEC("4000"),DEC("2000"),0 : REM replace all 256 characters of the first set
 
 ---
 
+## Unpacking
+
+### RXV
+
+```
+RXV src, dst
+```
+
+**(v3)** "RAM, unpack, to VRAM". Unpacks the VRL stream at *src* in CPU RAM bank 0 into VRAM from *dst* on. A VRL stream is a sequence of tokens: literal bytes, runs of one value, and skips that move on in VRAM without writing, ended by a zero byte. See [VRL format](vrl-format.md); `tools/vrl.py` makes such streams from pictures.
+
+- *src* points at the first token of the **stream**, not at the file header. A VRL file starts with a 5-byte header (`"VR"`, version, unpacked length), so after `BLOAD"PIC.VRL",B0,P(A)` the call is `RXV A+5,dst`. Streams embedded in other data have no header. The header is not checked: `RXV` on the header reads `"V"` (86) as a literal of 86 bytes.
+- The `BANK` setting is ignored. The stream must not lie in `$D000`–`$DFFF` (the command reads with I/O mapped in) or in `$FF00`–`$FF04`. Everywhere else in bank 0, also under the BASIC ROM and across `$4000`, it is fine.
+- Nothing is checked: a stream without its end token makes `RXV` read on (past `$FFFF` to `$0000`) with undefined results. The STOP key is not polled.
+- VRAM addresses wrap from 65535 to 0. With 16 KiB VRAM the memory mirrors as described above.
+- Runs shorter than the threshold *T* are written by the CPU, longer runs by the VDC's block fill, which works on its own while the CPU reads the next token. *T* is the byte at `$1C04` (default 14, provisional until measured on real hardware) and can be changed with `POKE DEC("1C04"),T`; any value 0–255 is allowed and changes only the speed, never the result. *T* = 0 or 1: all runs by block fill; *T* ≥ 128: all short runs (up to 127 bytes) by the CPU. Runs of 256 bytes or more always use the block fill.
+- `RXV` switches register 24 to block fill (bit 7 = 0) and keeps its other bits.
+- Afterwards `$1C06`/`$1C07` hold the address behind the end token (to unpack the next stream that follows directly) and `$1C08`/`$1C09` the VRAM address behind the last byte written or skipped, both low byte first.
+
+```
+10 BLOAD"DUNGEON.VRL",B0,P(DEC("8000"))
+20 RXV DEC("8000")+5,0
+30 A=PEEK(DEC("1C06"))+256*PEEK(DEC("1C07")) : REM where a following stream would start
+40 RXV A,8000
+```
+
+In a [VCL](#vcl) list, entry type 8 does the same without the time BASIC needs to evaluate the statement, which matters for many small streams (tiles, parts of a picture).
+
+---
+
 ## Display control
 
 ### DISP, ATTR, CRSR
@@ -356,7 +388,7 @@ The list says which stretches of the sprite data go where. Bytes not mentioned a
 VCL addr
 ```
 
-Executes a command list stored at *addr* in CPU RAM bank 0. Each entry is one type byte followed by 16-bit parameters and stands for one `VMC`, `VMF`, `VMW`, `VMS` or `SYN`. A zero byte ends the list. See [VCL list format](vcl-format.md).
+Executes a command list stored at *addr* in CPU RAM bank 0. Each entry is one type byte followed by 16-bit parameters and stands for one `VMC`, `VMF`, `VMW`, `VMS`, `RXV` (v3) or `SYN`. A zero byte ends the list. See [VCL list format](vcl-format.md).
 
 A list saves the time BASIC needs to read and evaluate each statement, which is most of the time of a short `VMC`.
 
@@ -371,9 +403,11 @@ For programs that add their own machine code.
 
 | Location | Use |
 |---|---|
-| `$1300`–`$1BF6` | Code and variables |
+| `$1300`–`$1BF6` | Code and variables (v2h) |
+| `$1C00`–`$1C0F` | (v3) Header: `$1C00` `JMP install`, `$1C03` version, `$1C04` threshold T of `RXV`, `$1C06`/`$1C07` and `$1C08`/`$1C09` results of `RXV`, rest reserved |
+| `$1C10`–`$3FFF` | (v3) Code and variables (currently up to `$2654`) |
 | `$02FC`, `$030C`–`$0311` | BASIC vectors taken over (function call, tokenise, list, execute) |
 | `$0A`–`$0E`, `$26`–`$2A` | Work bytes of `VCL`, `VMS`, `VMP` |
 | `$3F`/`$40`, `$77`/`$78` | List and target pointers |
-| `$83`–`$8E` | Parameters. BASIC uses these for its 40-column graphics commands. |
+| `$83`–`$8E` | Parameters. BASIC uses these for its 40-column graphics commands. `RXV` uses `$83`–`$8B` (stream pointer, VRAM address, counters). |
 | `$16`/`$17`, `$24`/`$25` | As BASIC uses them for `POKE` and strings |
