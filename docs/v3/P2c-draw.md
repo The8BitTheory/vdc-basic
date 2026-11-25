@@ -160,7 +160,7 @@ Ein echtes Run-Slicing mit Division (Lauflängen ohne Schritt je Pixel) ist als 
 | `VDL`-Koordinate > 16383 | 14 |
 | `x + w > 65536` oder `y + h > 65536` | 14 |
 
-Prüfungen vor dem ersten VRAM-Zugriff; bei einem Fehler bleibt das VRAM unverändert.
+Prüfungen vor dem ersten VRAM-Zugriff; bei einem Fehler bleibt das VRAM unverändert. Reihenfolge bei mehreren Ursachen: 11.2.
 
 ## 5. Python-Referenzmodell `test/ref/vdcdraw.py`
 
@@ -276,9 +276,49 @@ Gesamt v3: v2h 2 294 + Kopf 16 + Stubs/Tabellen ≈ 20 + `RXV`/VCL 8 ≈ 400 (P2
 | Prüfung | Erwartung |
 |---|---|
 | `test/ref/test_vdcdraw.py` | grün |
-| `test/draw/run_draw.py` | alle Fälle 6.2 bytegleich mit dem Modell über 64 KB, interpretiert und als Kompilat |
+| `test/draw/run_draw.py` | alle Fälle 6.2 bytegleich mit dem Modell über 64 KB interpretiert, als Kompilat mit `--quick` (11.4) |
 | T-Unabhängigkeit | S0/S1/B mit allen T gleich |
 | `test/run.sh test/*.bas` und `-c` | alle PASS (inkl. `draw-errors.bas`, `draw-basic.bas`) |
 | Zyklen | `cycles.md` erzeugt, Abweichungen von 7 begründet |
 | Größe | P2c ≤ 1 400 Byte, Gesamtende ≤ `$3FFF` |
 | Doku | 9 vollständig |
+
+## 11. Festlegungen aus dem Referenzmodell
+
+Stand 2026-11-25, Review des Modells `test/ref/` (Opus). Verbindlich; Abschnitte 1–6 gelten, wo hier nichts anderes steht.
+
+### 11.1 Pixelmenge und Ausgabe
+
+- `line_pixels` ist der klassische Bresenham (Wikipedia `plotLineLow/High`): Schritt nur bei `e > 0`, bei Gleichstand (e = 0) bleibt die Nebenachse stehen. Nach dem Tauschen läuft die Hauptachse immer aufwärts; daher ist die Menge unabhängig von der Reihenfolge der Endpunkte. Die Lauf-Ausgabe (3.5) rechnet denselben Fehlerterm je Pixel und fasst nur zusammen, sie ergibt also dieselbe Menge. Ein späteres Run-Slicing mit Division muss diese Menge exakt treffen (Rundung bei Gleichstand beachten).
+- `rect_pixels`-Reihenfolge: oben, unten, links, rechts (wie 3.4). Die Reihenfolge ist für das Ergebnis ohne Bedeutung, weil jedes Pixel genau einmal vorkommt (geprüft per XOR-Bitzählung).
+- `VDB` im Modell zeilenweise, Pixel für Pixel; der Assembler darf jede Reihenfolge wählen.
+- Nibble-/Bit-Belegung wie 1.2 (Bit 7 bzw. High-Nibble = linkes Pixel), im Modell `_plot` und `pixel`.
+
+### 11.2 Parameter und Fehler
+
+Die 6502-Fassung liest jeden Parameter mit der ROM-Routine `getadr` (`b_parse_uint16` `$8812` bzw. `b_parse_comma_uint16` `$880F`, Kern `$8815`). Nachgesehen in `basichi-318019-04.bin`: negatives Vorzeichen oder Exponent ≥ `$91` (Wert ≥ 65536) → `$7D28` (`?ILLEGAL QUANTITY`, 14); sonst `qint`, Nachkommastellen werden abgeschnitten. Fehlendes Komma: `b_skip_comma` `$795C` → `?SYNTAX ERROR` (11). Nummern 11 und 14 passen zu BASIC 7.0.
+
+Daraus verbindlich (Modell `_args`, dann `_num`):
+
+1. Parameter **von links nach rechts**; je Parameter: fehlt → 11, außerhalb 0–65535 → 14. Der erste Fehler gewinnt.
+2. Erst wenn alle Parameter gelesen sind: befehlsspezifische Bereiche (`modus` 0/1, `stride` ≥ 1, `c` je Modus, `VDL` ≤ 16383, `x + w ≤ 65536`, `y + h ≤ 65536`) → 14.
+3. Beispiele: `VDL 70000,0` → 14; `VDL 20000,0` (Rest fehlt) → 11; `VDM 2,0` → 11.
+4. w, h 0–65535 (w = 65536 ist durch Schritt 1 schon 14). `basis` 0–65535, `stride` 1–65535.
+5. Nicht ganzzahlige Werte: ROM schneidet ab. Das Modell nimmt nur `int` und wirft sonst `TypeError` (Fehler im Test, kein BASIC-Fehler); Testfälle mit Brüchen gibt es nicht. Zeichenketten (`?TYPE MISMATCH`, 22) und zu viele Parameter (11) prüft nur `draw-errors.bas`, nicht das Modell.
+6. Ein fehlgeschlagenes `VDM` lässt den Zustand unverändert.
+
+### 11.3 Testvektoren
+
+- Generator `test/ref/gen_vectors.py`; Format `vdcdraw-vectors-1` (Kopf der Datei). Grundmuster `random.Random(13)`, je Fall `diff` (geänderte Läufe) und `sha1` über 64 KB. Die S1-Mittelteilbreiten und die Kreisrundung (`round`) sind wie im Generator festgelegt.
+- S0/S1 „mid“-Fälle haben **genau m** volle Mittelbytes (x = 0 ohne Ränder, x = 1 bzw. 3 mit beiden Rändern; im Test geprüft). Der erste Entwurf lag um 1 bzw. 2 daneben und hätte m = T − 1 nie getroffen.
+- Jeder Fall beginnt mit `VDM`; der Zustand hängt nie vom Vorfall ab.
+- Der Harness importiert `gen_vectors.build()` direkt (≈ 9 s) und vergleicht den VRAM-Dump mit dem Modell; die JSON-Datei (≈ 600 KB) wird nicht eingecheckt.
+
+### 11.4 Laufzeit in VICE (Empfehlung für 6.1)
+
+1 520 Fälle (S0 645, Z 200, V 192, S1 166, L 157, R 103, B 48, G 12). Je Fall: Grundmuster laden (`load`, 64 KB, Bank `vdc`), Befehle interpretiert, `save` 64 KB, Vergleich in Python. Geschätzt 0,2–0,4 s je Fall im Warp → voller Satz 5–10 min je Durchgang, interpretiert plus Kompilat das Doppelte.
+
+- `run_draw.py` unterstützt `--group` und `--quick`. `--quick` (`gen_vectors.is_quick`: S0-Raster nur x ∈ {0, 3, 7}, Z nur 000–049) hat 1 010 Fälle und ist der Standard für Entwicklungsläufe; der volle Satz für die Abnahme (10) und nur interpretiert, das Kompilat läuft mit `--quick`.
+- Alle Fälle in **einer** VICE-Sitzung (Haltepunkte `$1BFE`/`$1BFF`, ereignisgesteuert, Timeout nur als Wächter). Kein Neustart je Fall.
+- Vergleich über die vollen 64 KB bleibt Pflicht (findet Schreibzugriffe neben dem Ziel). `diff` dient nur der Fehlermeldung.
+
