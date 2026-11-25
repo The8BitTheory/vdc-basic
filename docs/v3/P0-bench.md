@@ -1,6 +1,6 @@
 # P0: Messprogramm VDC-Zeiten (Block fill, CPU-Streaming, VMC/VMS, Reg 36)
 
-Stand: 2026-11-25. Detailspezifikation zu Schritt P0 aus `dungeonboringengine/docs/plan-0.2.md`. Umsetzung: Sonnet (Messprogramm, Harness, Auswertung), Haiku (VICE-Läufe). Review: Opus.
+Stand: 2026-11-25 (nach Review der Umsetzung angepasst, siehe Abschnitt 13). Detailspezifikation zu Schritt P0 aus `dungeonboringengine/docs/plan-0.2.md`. Umsetzung: Sonnet (Messprogramm, Harness, Auswertung), Haiku (VICE-Läufe). Review: Opus.
 
 ## 1. Zweck und Ergebnis
 
@@ -32,12 +32,13 @@ Gemessen werden die Kosten der VDC-Zugriffe, die `RXV` (VRL-Decoder, P2b) und di
 
 Folgen:
 
-- In VICE wird T sehr klein ausfallen (Fill fast kostenlos, CPU-Byte 4–45 Takte je nach Rasterposition). Auf echter Hardware hängt beides an der Speicherbandbreite des VDC und an der Anzeige. **T aus VICE darf nicht fest in `RXV` eingebaut werden** (siehe `review-notes.md`: T als patchbares Byte).
-- Ob `maincpu_clk` im 2-MHz-Modus von x128 doppelt zählt, ist nicht geklärt. Gemessen wird deshalb mit dem CIA-Timer in µs (Abschnitt 5); die Zyklen der CPU werden daraus abgeleitet.
+- In VICE wird T sehr klein ausfallen (Fill fast kostenlos, CPU-Byte in der Anzeige etwa 50 µs, in der Austastung durch die Schleife begrenzt). Auf echter Hardware hängt beides an der Speicherbandbreite des VDC und an der Anzeige. **T aus VICE darf nicht fest in `RXV` eingebaut werden** (siehe `review-notes.md`: T als patchbares Byte).
+- **Geklärt:** `maincpu_clk` zählt auch im 2-MHz-Modus in 1-MHz-Takten (`vicii/vicii-clock-stretch.c`, `vicii_clock_add`: im `fastmode` halbe Schritte). Die Busy-Zeiten oben sind also µs: 43 µs = 86 CPU-Zyklen bei 2 MHz. Die Gegenprobe (Abschnitt 5) bestätigt das (Stoppuhr/CIA = 0,9999 auch bei 2 MHz). Gemessen wird weiter mit dem CIA-Timer in µs; die Zyklen der CPU werden daraus abgeleitet.
+- `display_enable` ist in VICE nur vertikal: Zeichenzeilen 1 … R6 von R4 + 1 (hier 120 von 160, 75 % der Zeit). Ein Byte über Reg 31 kostet in der Anzeige 43 µs Busy plus Abfrageschleife und DRAM-Refresh des VIC (gemessen ≈ 49,6 µs = 99 Zyklen bei 2 MHz, 57 Zyklen bei 1 MHz), in der Austastung nur die Schleife. Ein Fenster, das über die Anzeige hinausreicht, mischt beides; deshalb `vdc_sync` (Abschnitt 6) und `cpu_byte` nur aus kurzen Fenstern (Abschnitt 10.2).
 - Der Reg-36-Test kann in VICE nur das Harness prüfen (erwartet: 0 Fehler).
 - Jede JSON-Ausgabe aus VICE trägt `"provisional": true` mit diesem Grund.
 
-**Plausibilitätsprüfung (Pflicht, Warnung in der Ausgabe):** Weicht das Ergebnis deutlich vom VICE-Modell ab, ist eher das Messprogramm falsch. Erwartung in VICE: `fill_done(256) − fill_done(2)` etwa 254 × 0,66 Takte; `copy_done(256) − copy_done(1)` etwa 255 × 1,2 Takte; Streaming je Byte zwischen etwa 6 und 45 Takten.
+**Plausibilitätsprüfung (Pflicht, Warnung in der Ausgabe):** Weicht das Ergebnis deutlich vom VICE-Modell ab, ist eher das Messprogramm falsch. Erwartung in VICE: `fill_done(256) − fill_done(2)` etwa 254 × 0,66 Takte; `copy_done(256) − copy_done(1)` etwa 255 × 1,2 Takte; `cpu_byte` (Anzeige) zwischen 43 × MHz und 62 × MHz CPU-Zyklen (nur bei `provisional`).
 
 ## 3. Dateien (alle unter `test/bench/` im Repo vdc-basic)
 
@@ -160,11 +161,11 @@ t_stop:                   ; -> t_lo/t_mid/t_hi = $FFFFFFFF - Zählerstand (24 Bi
 ```
 
 - Die Messung umfasst `jsr t_start` bis `jsr t_stop`. Fall 0 (leer) misst genau diesen Rahmen mit derselben Schleifenstruktur; `evaluate.py` zieht ihn ab.
-- Jede Messung wiederholt den Vorgang `reps`-mal in einer Schleife **innerhalb** des Zeitfensters (Ausnahme: „issue“-Fälle, 6.1). Die Schleife ist überall gleich: `ldy #reps` … `dey / bne` (Y bleibt für den Fall frei: Fälle, die Y brauchen, sichern es in einer Zeropage-Zelle `$FB`).
+- Jede Messung wiederholt den Vorgang `reps`-mal in einer Schleife **innerhalb** des Zeitfensters (Ausnahme: „issue“-Fälle, 6.1). Die Schleife ist überall gleich: `ldy #reps` … `dey / bne` (Y bleibt für den Fall frei: Fälle, die Y brauchen, sichern es in einer Zeropage-Zelle `$FB`). Umsetzung Fall 8–10: Die Routinen von VDC-BASIC verändern Y; dort zählt `$FB` selbst die Wiederholungen (`dec $FB / bne`) statt `dey`.
 - Zeropage: nur `$FA–$FF` und die Argumente von VDC-BASIC `$83–$8E` (nur Fall 8–10).
 - Die Zeit in CPU-Zyklen ist µs × 1 (1 MHz) bzw. µs × 2 (2 MHz). Das ist eine Umrechnung, keine zweite Messung.
 
-**Gegenprobe (einmal, nur VICE):** Für Fall 1 mit N = 256 setzt das Harness zusätzlich Haltepunkte auf die Labels `xchk_a` und `xchk_b` direkt vor `t_start` und nach `t_stop` und liest dort die Stoppuhr des Monitors (`r`, letzte Spalte, wie `test/vice_drive.py` im Engine-Repo). Die Differenz in µs (1 MHz) muss ±20 mit dem CIA-Wert übereinstimmen; im 2-MHz-Modus wird nur das Verhältnis protokolliert (klärt die Frage aus Abschnitt 2).
+**Gegenprobe (einmal, nur VICE):** Für Fall 1 mit N = 256 setzt das Harness zusätzlich Haltepunkte auf die Labels `xchk_a` und `xchk_b` direkt vor `t_start` und nach `t_stop` und liest dort die Stoppuhr des Monitors (`r`, letzte Spalte, wie `test/vice_drive.py` im Engine-Repo). Die Differenz in µs muss ±20 mit dem CIA-Wert übereinstimmen (die Stoppuhr zählt auch bei 2 MHz µs, Abschnitt 2); dazu wird das Verhältnis protokolliert. Umsetzung: `xchk_a`/`xchk_b` liegen innerhalb des CIA-Fensters (nach `jsr t_start` bzw. vor `jmp t_stop`); `evaluate.py` zieht vom CIA-Wert 15 CPU-Zyklen Rahmen ab (`FRAME_CYCLES`, in µs: 15 / MHz).
 
 ## 6. Messfälle
 
@@ -184,6 +185,8 @@ Makros (ca65):
     sta $D601
 .endmacro
 ```
+
+**`vdc_sync` (vor jedem Fall, außerhalb des Fensters):** warten, bis Status Bit 5 (`$D600`, VBLANK) gesetzt ist, dann bis es fällt, d. h. auf den Beginn der Anzeige. Damit beginnt jede Messung in derselben Rasterphase; ohne Sync streuten Läufe in VICE um bis zu 504 µs. Folge: Fenster bis etwa 15 ms (Fall 1/2 mit N ≤ 16, alle Fill/Copy-Einzelwerte) liegen ganz in der Anzeige und messen deren Kosten; längere Fenster (Fall 1/2 mit N ≥ 32) mitteln über Anzeige und Austastung. Auf echter Hardware ist Bit 5 ebenfalls VBLANK.
 
 Vor jedem Fall: Zieladresse (Reg 18/19) auf den Anfang des Messbereichs Ziel setzen, bei Copy/VMC/VMS Quelle auf den Messbereich Quelle; dann `vwait` (VDC bereit). Alles außerhalb des Zeitfensters.
 
@@ -211,7 +214,7 @@ Hinweise:
 
 ### 6.1 Einzelvorgänge („issue“)
 
-Für 5 und 7 gilt je Wiederholung: `jsr t_start`, Vorgang, `jsr t_stop`, Zeit zu einer 24-Bit-Summe addieren, danach `vwait` außerhalb des Fensters. Gespeichert wird die Summe; Fall 0 wird dafür zusätzlich in derselben Form gemessen (Datensatz mit Variante-Bit 2 = „einzeln“).
+Für 5 und 7 gilt je Wiederholung: `jsr t_start`, Vorgang, `jsr t_stop`, Zeit zu einer 24-Bit-Summe addieren, danach `vwait` außerhalb des Fensters. Gespeichert wird die Summe; Fall 0 wird dafür zusätzlich in derselben Form gemessen (Datensatz mit Variante-Bit 2 = „einzeln“). Die Datensätze von 5 und 7 tragen Bit 2 ebenfalls (Kennzeichen „Summe von Einzelvorgängen“); `evaluate.py` zieht von ihnen den Einzel-Leerwert (bereits Summe über reps) ab.
 
 ### 6.2 Parameter und Konfigurationen
 
@@ -259,7 +262,7 @@ Aufruf: `test/bench/run_bench.py [--short] [--no-r36] [--port N] [--out test/ben
 - Beenden nur des selbst gestarteten Prozesses (`Popen`-Objekt: `terminate()`, nach Timeout `kill()`, im `finally`). Kein `pkill`/`killall` auf `x128`/`x64sc`.
 - Der Monitor verbindet sich nur mit genau diesem Port; antwortet dort kein VICE mit Prompt, Abbruch (nicht an einen fremden VICE anhängen).
 
-Ablauf (ereignisgesteuert, keine festen Wartezeiten; Timeout nur als Wächter, Standard 600 s):
+Ablauf (ereignisgesteuert, keine festen Wartezeiten; Timeout nur als Wächter über den ganzen Lauf, nicht je Empfang; Standard 120 s, `--timeout S`; Volllauf in VICE etwa 12 s):
 
 1. Build (3.1), Disk, Lader.
 2. VICE starten:
@@ -304,9 +307,11 @@ Für jeden Datensatz: `us = roh − leer` (passender Fall-0-Datensatz derselben 
 
 | Schlüssel | Berechnung |
 |---|---|
-| `cpu_byte` | Steigung (lineare Regression) von Fall 1 über N, geteilt durch 1 (je Byte) |
-| `cpu_run_fixed` | Achsenabschnitt derselben Regression |
-| `cpu_lit_byte` | Steigung von Fall 2 |
+| `cpu_byte` | Steigung (lineare Regression) von Fall 1 über **N ≤ 16** (Fenster ganz in der Anzeige, siehe `vdc_sync`) |
+| `cpu_run_fixed` | Achsenabschnitt derselben Regression (≈ 0 oder leicht negativ: das erste Byte je Fenster wartet nicht, weil vorher `vwait` lief) |
+| `cpu_byte_avg` | Fall 1, N = 256, je Byte (Mittel über mehrere Frames Anzeige + Austastung) |
+| `cpu_lit_byte_avg` | dasselbe für Fall 2 |
+| `cpu_lit_byte` | Steigung von Fall 2 über N ≤ 16 |
 | `new_addr` | Fall 3 je Vorgang − `cpu_byte` |
 | `fill_fixed`, `fill_byte` | Regression `fill_done(L)` = fixed + byte × L über L ≥ 2, Variante norm |
 | `fill_fixed_rmw` | dasselbe, Variante rmw |
@@ -335,7 +340,7 @@ Für jeden Datensatz: `us = roh − leer` (passender Fall-0-Datensatz derselben 
   "records": [{"case": "fill_done", "variant": "norm", "clock_mhz": 2, "r36": 0, "param": 17,
                "reps": 16, "us_total": 123, "us_per_op": 7.69, "cycles_per_op": 15.4}],
   "derived": {"A": {"cpu_byte": 0.0, "...": 0.0, "T": 0}, "B": {}, "C": {}, "D": {}},
-  "engine": {"config": "A", "cpu_byte": 0.0, "cpu_lit_byte": 0.0, "cpu_run_fixed": 0.0, "new_addr": 0.0,
+  "engine": {"config": "A", "cycles_clock_mhz": 2, "cpu_byte": 0.0, "cpu_byte_avg": 0.0, "cpu_lit_byte": 0.0, "cpu_run_fixed": 0.0, "new_addr": 0.0,
              "fill_fixed": 0.0, "fill_byte": 0.0, "copy_fixed": 0.0, "copy_byte": 0.0, "T": 0},
   "r36": [{"r36": 0, "frames": 1, "errors": 0}]
 }
@@ -354,7 +359,7 @@ Für jeden Datensatz: `us = roh − leer` (passender Fall-0-Datensatz derselben 
 
 ## 11. Echte Hardware
 
-`loader-hw.bas` auf Diskette, `RUN`. Modus `$2004` bleibt 0 (Jiffy-Uhr), der Lader speichert `BENCHRES`. Auswertung: `run_bench.py --from-file BENCHRES.prg --source c128`. Die JSON-Ausgabe trägt dann `"provisional": false`. Auf echter Hardware ist der Reg-36-Test aussagekräftig; F = 500 (etwa 8 s) zeigt, ob Daten außerhalb der Anzeige ohne Refresh verloren gehen.
+`run_bench.py` legt `loader-hw` (tokenisiert) mit auf `build/bench/bench.d64`; am C128 (80 Zeichen, 64-KB-VDC) `LOAD"LOADER-HW",8`, `RUN`. Modus `$2004` bleibt 0 (Jiffy-Uhr), der Lader speichert `BENCHRES` (65 Blöcke) auf dieselbe Disk und meldet `FERTIG`. In VICE mit Modus 0 geprüft (`BSAVE` schreibt `BENCHRES`, `--from-file` wertet ihn aus). Anleitung Schritt für Schritt: `test/bench/README.md`. Auswertung: `run_bench.py --from-file BENCHRES.prg --source c128`. Die JSON-Ausgabe trägt dann `"provisional": false`. Auf echter Hardware ist der Reg-36-Test aussagekräftig; F = 500 (10 s bei PAL, 50 Jiffies/s) zeigt, ob Daten außerhalb der Anzeige ohne Refresh verloren gehen.
 
 ## 12. Abnahme
 
@@ -364,8 +369,14 @@ Für jeden Datensatz: `us = roh − leer` (passender Fall-0-Datensatz derselben 
 | Laufzeit | Kurzlauf < 1 min, Volllauf < 10 min (Warp) |
 | Port | Standard 6631 bzw. `DBE_VICE_PORT`; belegter Port wird erkannt; nur der eigene VICE-Prozess wird beendet |
 | keine festen Wartezeiten | kein `sleep` im Harness außer dem Wiederholen des Verbindungsaufbaus (wie `vice_drive.py`) |
-| Wiederholbarkeit | zwei Läufe in VICE: alle `us_total` gleich oder ±1 |
+| Wiederholbarkeit | zwei Läufe in VICE: T identisch; Werte in `engine` ±2 % oder ±2 Zyklen; jedes `us_total` ±max(100 µs, 0,1 %). (±1 µs ist in VICE nicht erreichbar: auch mit `vdc_sync` bleibt die Phase zu VIC-Refresh und VDC-Zeile offen; Kontrolllauf: 77 % ±5 µs, max. 57 µs bei Fenstern < 15 ms, max. 97 µs = 0,08 % bei N = 256) |
 | Plausibilität | Warnungen nach Abschnitt 2 sind leer oder begründet |
 | Gegenprobe | CIA gegen Monitor-Stoppuhr ±20 µs (1 MHz) |
 | Reg 36 in VICE | 0 Fehler |
 | Repo | nur `test/bench/*`, `docs/v3/P0-bench.md`, `.gitignore`; `vdcbasic2h.bin` unverändert |
+
+## 13. Review der Umsetzung (2026-11-25)
+
+- `cpu_byte` war zunächst die Regression über alle N (57 Zyklen bei 2 MHz): ein Mischwert, weil Fenster ab N = 32 nach `vdc_sync` in die Austastung reichen. Jetzt N ≤ 16 (99 Zyklen = 49,6 µs, passt zu 43 µs Busy) plus `cpu_byte_avg` (N = 256, 58 Zyklen). `new_addr` entsprechend 193 statt 234. T bleibt in VICE 2.
+- Harness: Wächter-Timeout gilt für den ganzen Lauf (vorher je `recv` 600 s, ein Hänger blieb also bis zu 10 min unbemerkt); Abbruch, wenn der eigene VICE vor dem Verbindungsaufbau endet; Portprüfung mit `SO_REUSEADDR` wie VICE (sonst gilt der Port nach einem Lauf wegen TIME_WAIT 60 s als belegt).
+- Abweichungen der Umsetzung (in den Abschnitten oben übernommen): `vdc_sync`, `$FB` als Zähler in Fall 8–10, Gegenprobe innerhalb des Fensters mit 15 Zyklen Rahmen, Bit 2 auch bei Fall 5/7, Wiederholbarkeit für VICE gelockert.

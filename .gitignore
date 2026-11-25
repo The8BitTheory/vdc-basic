@@ -4,3 +4,4 @@ build
 .vscode/c_cpp_properties.json
 .vscode/settings.json
 vdcbasic-guide.d64
+__pycache__
