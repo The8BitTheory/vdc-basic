@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Messprogramm vdcbench in VICE (x128, headless) bauen, starten, auswerten.
 
-Aufruf: run_bench.py [--short] [--no-r36] [--port N] [--out DIR] [--timeout S]
+Aufruf: run_bench.py [--emu vice|z64k] [--short] [--no-r36] [--port N] [--out DIR] [--timeout S]
                      [--from-file BENCHRES.prg --source c128]
+--emu z64k: zweites, genaueres VDC-Backend (Z64K, Java, Xvfb); Hardware-Pfad loader-hw (BSAVE).
 Siehe README.md und docs/v3/P0-bench.md (Abschnitt 8).
 
 Ereignisgesteuert: Haltepunkte ueber den Remote-Monitor, keine festen Wartezeiten.
 Das Timeout ist nur ein Waechter gegen Haenger.
 """
-import argparse, os, re, socket, subprocess, sys, time
+import argparse, glob, os, re, select, shutil, socket, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -125,10 +126,19 @@ def choose_port(arg):
 def build():
     os.makedirs(BUILD, exist_ok=True)
     env = dict(os.environ, ACME=os.path.expanduser('~/.local/share/acme/ACME_Lib'))
-    run(['acme', '-f', 'cbm', '-o', 'build/bench/vdcbasic2h.bin', '-l', 'build/bench/vdcbasic2h.sym',
-         'src/vdcbasic.asm'], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Gemessen wird VDC-BASIC v2h ($1300, eingecheckte vdcbasic2h.bin). Quelle des v2h-Stands: der letzte
+    # Commit (HEAD), der vdcbasic2h.bin geaendert hat; die Arbeitskopie von src/ (P2a: $1C00) bleibt aussen vor.
+    commit = subprocess.run(['git', 'log', '-1', '--format=%H', '--', 'vdcbasic2h.bin'], cwd=ROOT,
+                            capture_output=True, text=True, check=True).stdout.strip()
+    tree = os.path.join(BUILD, 'v2h')
+    os.makedirs(os.path.join(tree, 'src'), exist_ok=True)
+    for f in ('vdcbasic.asm', 'vdclib.a'):
+        data = subprocess.run(['git', 'show', f'{commit}:src/{f}'], cwd=ROOT, capture_output=True, check=True).stdout
+        open(os.path.join(tree, 'src', f), 'wb').write(data)
+    run(['acme', '-f', 'cbm', '-o', os.path.join(BUILD, 'vdcbasic2h.bin'), '-l', os.path.join(BUILD, 'vdcbasic2h.sym'),
+         'src/vdcbasic.asm'], cwd=tree, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if open(os.path.join(BUILD, 'vdcbasic2h.bin'), 'rb').read() != open(os.path.join(ROOT, 'vdcbasic2h.bin'), 'rb').read():
-        sys.exit('build/bench/vdcbasic2h.bin weicht von vdcbasic2h.bin ab')
+        sys.exit(f'v2h aus Commit {commit[:8]} weicht von vdcbasic2h.bin ab')
     sym = open(os.path.join(BUILD, 'vdcbasic2h.sym')).read()
     lines = []
     for n in SYMS:
@@ -238,21 +248,135 @@ def vice_run(port, short, no_r36, tmo):
     return out, xchk
 
 
+Z64K_JAR = os.environ.get('Z64K_JAR', os.path.expanduser('~/.local/share/z64k/Z64K.jar'))
+Z64K_CYC_PER_S = 1_000_000          # grob (Warp ~ 2-3 MHz); -limitcycles nur als Waechter
+
+
+def make_z64k_loader(mode):
+    """loader-hw.bas (unveraendert) + Modusbyte + Exitcode ueber $D7FF (nur Z64K, mit -debugcart).
+    Der Hardware-Lader bleibt frei von Zugriffen auf $D7FF."""
+    # mode: Bit 1 = Reg-36-Test aus, Bit 2 = Kurzlauf; Bit 0 = 0: Reg-36-Wartezeit ueber Jiffy-Uhr
+    lines = [l for l in open(os.path.join(HERE, 'loader-hw.bas')).read().splitlines() if l.strip()]
+    out = ['5 TRAP 90']                                      # BASIC-Fehler -> Exitcode 2 (ereignisgesteuert)
+    for l in lines:
+        if l.startswith('30 ') and mode:
+            out.append(f'25 BANK15:POKE 8196,{mode}')        # nach BLOAD VDCBENCH, vor SYS 8192
+        out.append(l)
+    out.append('50 BANK15:POKE DEC("D7FF"),0')                # BSAVE fertig -> Exitcode 0 (debugcart)
+    out.append('90 BANK15:POKE DEC("D7FF"),2')                # TRAP-Ziel
+    bas = os.path.join(BUILD, 'loader-z64k.bas')
+    open(bas, 'w').write('\n'.join(out) + '\n')
+    run(['python3', os.path.join(ROOT, 'test', 'bastok.py'), bas, os.path.join(BUILD, 'loader-z64k.prg')])
+
+
+def start_xvfb():
+    """Eigenes Xvfb auf freier Displaynummer (-displayfd waehlt sie, kein fester Wert)."""
+    r, w = os.pipe()
+    xv = subprocess.Popen(['Xvfb', '-displayfd', str(w), '-screen', '0', '1024x768x24', '-nolisten', 'tcp'],
+                          pass_fds=[w], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.close(w)
+    try:
+        if not select.select([r], [], [], 30)[0]:
+            raise RuntimeError('Xvfb meldet keine Displaynummer')
+        num = os.read(r, 32).decode().strip()
+        if not num.isdigit():
+            raise RuntimeError('Xvfb beendet vor der Displaynummer')
+    except BaseException:
+        xv.kill()
+        raise
+    finally:
+        os.close(r)
+    return xv, ':' + num
+
+
+def z64k_run(mode, tmo):
+    """Hardware-Pfad (loader-hw: BSAVE) in Z64K. Z64K schreibt Images nicht selbst zurueck:
+    Z64KRun.java sichert das Image von Laufwerk 8 im Shutdown-Hook (beim debugcart-Exit). Ereignis
+    = Prozessende (Exitcode 0 vom Lader per $D7FF); -limitcycles und tmo sind nur Waechter."""
+    for t in ('Xvfb', 'java'):
+        if not shutil.which(t):
+            sys.exit(f'{t} fehlt (fuer --emu z64k noetig)')
+    if not os.path.exists(Z64K_JAR):
+        sys.exit(f'Z64K.jar nicht gefunden: {Z64K_JAR} (Umgebungsvariable Z64K_JAR)')
+    make_z64k_loader(mode)
+    work = os.path.join(BUILD, 'z64k')
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    src = os.path.join(work, 'bench.d64')
+    shutil.copy(os.path.join(BUILD, 'bench.d64'), src)
+    saved = os.path.join(work, 'saved.d64')
+    out = os.path.join(BUILD, 'benchres.prg')
+    if os.path.exists(out):
+        os.remove(out)
+    cmd = ['java', '-cp', Z64K_JAR, os.path.join(HERE, 'Z64KRun.java'), 'c128', '-vdc64kb', '-warp', '-debugcart',
+           '-limitcycles', str(int(tmo * Z64K_CYC_PER_S * 4)), '-8', src,
+           '-autoload', os.path.join(BUILD, 'loader-z64k.prg')]
+    xv, disp = start_xvfb()
+    print(f'Xvfb {disp} (PID {xv.pid}), Z64K startet ...', flush=True)
+    log = open(os.path.join(work, 'z64k.log'), 'w')
+    t0 = time.time()
+    jp = subprocess.Popen(cmd, env=dict(os.environ, DISPLAY=disp, Z64K_SAVE=saved),
+                          stdout=log, stderr=subprocess.STDOUT)
+    try:
+        try:
+            rc = jp.wait(tmo)           # Ereignis: Prozessende (debugcart-Exit)
+        except subprocess.TimeoutExpired:
+            sys.exit(f'Waechter-Timeout (--timeout) abgelaufen nach {tmo} s (Log: {log.name})')
+    finally:
+        if jp.poll() is None:
+            jp.terminate()
+            try:
+                jp.wait(15)
+            except subprocess.TimeoutExpired:
+                jp.kill()
+        xv.terminate()
+        try:
+            xv.wait(10)
+        except subprocess.TimeoutExpired:
+            xv.kill()
+        log.close()
+    print(f'Z64K beendet nach {time.time() - t0:.0f} s, Exitcode {rc}', flush=True)
+    if rc != 0:
+        sys.exit(f'Z64K-Exitcode {rc} (0 erwartet; 1 = -limitcycles, 2 = BASIC-Fehler im Lader, 3 = Z64K-Version passt nicht zu Z64KRun.java), Log: {log.name}')
+    imgs = glob.glob(saved + '*')
+    if not imgs:
+        sys.exit(f'Z64K hat das Image nicht gesichert (Log: {log.name})')
+    run(['c1541', '-attach', imgs[0], '-read', 'benchres', out], stdout=subprocess.DEVNULL)
+    return out
+
+
+def z64k_full(short, no_r36, tmo):
+    """Ein Z64K-Lauf; Modusbyte: Bit 1 = Reg-36-Test aus, Bit 2 = Kurzlauf."""
+    return z64k_run((2 if no_r36 else 0) | (4 if short else 0), tmo)
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--emu', choices=('vice', 'z64k'), default='vice')
     ap.add_argument('--short', action='store_true')
     ap.add_argument('--no-r36', action='store_true')
+    ap.add_argument('--skip-build', action='store_true', help='vorhandenes build/bench wiederverwenden')
     ap.add_argument('--port', type=int)
     ap.add_argument('--out', default=os.path.join(HERE, 'results'))
-    ap.add_argument('--timeout', type=int, default=120)   # Waechter; Volllauf dauert ~15 s
+    ap.add_argument('--timeout', type=int)    # Waechter (Standard: VICE 120 s, Z64K 600 s je Lauf)
     ap.add_argument('--from-file')
     ap.add_argument('--source', default='vice3.10')
     a = ap.parse_args()
     if a.from_file:
         evaluate.evaluate(a.from_file, a.source, a.out, [], provisional=(a.source != 'c128'))
         return
+    if a.emu == 'z64k':
+        if not a.skip_build:
+            build()
+        prg = z64k_full(a.short, a.no_r36, a.timeout or 600)
+        if not os.path.exists(prg):
+            sys.exit('benchres.prg wurde nicht geschrieben')
+        evaluate.evaluate(prg, 'z64k', a.out, [], provisional=True)
+        return
+    a.timeout = a.timeout or 120
     port = choose_port(a.port)
-    build()
+    if not a.skip_build:
+        build()
     print(f'VICE-Monitor-Port {port}', flush=True)
     prg, xchk = vice_run(port, a.short, a.no_r36, a.timeout)
     if not os.path.exists(prg):

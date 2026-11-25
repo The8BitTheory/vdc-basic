@@ -84,7 +84,41 @@ def threshold(cpu_fixed, cpu_byte, fill):
     return T
 
 
+PROV_REASON_Z64K = ('Z64K (Emulator): VDC genauer als VICE, aber kein Hardware-Ergebnis; erst Messwerte vom echten C128 '
+                    'gelten als endgültig')
+CMP_KEYS = ('cpu_byte', 'cpu_lit_byte', 'new_addr', 'fill_fixed', 'fill_byte', 'copy_fixed', 'copy_byte', 'T',
+            'vmc_call', 'vmc_row', 'vmc_byte', 'vms1_call', 'vms1_cmd', 'vms1_byte', 'vms8_call', 'vms8_byte')
+
+
+def vice_reference(outdir):
+    """Neueste VICE-Messung in outdir (results/vice3.10-*.json) oder None."""
+    import glob
+    fs = sorted(glob.glob(os.path.join(outdir, 'vice3.10-*.json')))
+    return (fs[-1], json.load(open(fs[-1]))) if fs else None
+
+
+def compare_md(res, ref):
+    """Vergleichstabelle VICE gegen Z64K (Konfigurationen A-D, Zyklen je Operation)."""
+    name, r = ref
+    o = ['', f'## 7. Vergleich VICE 3.10 gegen Z64K (Zyklen; Referenz `{os.path.basename(name)}`)', '',
+         'Verhältnis = Z64K / VICE. `T` = Schwelle in Bytes (257 = nie).', '']
+    for cfg in 'ABCD':
+        a, b = r['derived'].get(cfg), res['derived'].get(cfg)
+        if not a or not b:
+            continue
+        o += [f'### Konfiguration {cfg}', '', '| Schlüssel | VICE | Z64K | Verhältnis |', '|---|---|---|---|']
+        for k in CMP_KEYS:
+            x, y = a.get(k), b.get(k)
+            if x is None or y is None:
+                continue
+            ratio = f'{y / x:.2f}' if x else '-'
+            o.append(f'| `{k}` | {x:g} | {y:g} | {ratio} |')
+        o.append('')
+    return o
+
+
 def evaluate(path, source, outdir, xchk, provisional=True):
+    vice_model = not source.startswith('z64k')    # Erwartungswerte (Abschnitt 2) gelten nur fuer VICE
     ver, recs = parse(path)
     today = datetime.date.today()
     warnings = []
@@ -164,17 +198,17 @@ def evaluate(path, source, outdir, xchk, provisional=True):
         thr[name] = (series(key, 4, 0, 1), series(key, 4, 1, 1), series(key, 5, 0, 1))
         # Plausibilitaet (Abschnitt 2)
         f_all = series(key, 4, 0, 1)
-        if 2 in f_all and 256 in f_all:
+        if vice_model and 2 in f_all and 256 in f_all:
             v, e = f_all[256] - f_all[2], 254 * 0.66
             if not 0.4 * e <= v <= 2.5 * e:
                 warnings.append(f'Konfig {name}: fill_done(256)-fill_done(2) = {v:.0f} Zyklen, erwartet etwa {e:.0f}')
         c_all = series(key, 6, 0, 1)
-        if 1 in c_all and 256 in c_all:
+        if vice_model and 1 in c_all and 256 in c_all:
             v, e = c_all[256] - c_all[1], 255 * 1.2
             if not 0.4 * e <= v <= 2.5 * e:
                 warnings.append(f'Konfig {name}: copy_done(256)-copy_done(1) = {v:.0f} Zyklen, erwartet etwa {e:.0f}')
         mhz = key[0]
-        if provisional and not 43 * mhz <= b <= 62 * mhz:   # VICE: 43 Takte zu 1 MHz busy + Abfrage/Refresh
+        if provisional and vice_model and not 43 * mhz <= b <= 62 * mhz:   # VICE: 43 Takte zu 1 MHz busy + Abfrage/Refresh
             warnings.append(f'Konfig {name}: cpu_byte = {b:.1f} Zyklen, erwartet in VICE {43 * mhz} bis {62 * mhz}')
     # Gegenprobe CIA gegen Monitor-Stoppuhr
     xc = []
@@ -192,7 +226,7 @@ def evaluate(path, source, outdir, xchk, provisional=True):
                 warnings.append(f'Gegenprobe Konfig {e["config"]}: CIA {cia} us gegen Monitor {x["sw_cycles"]} Zyklen, '
                                 f'Abweichung {e["diff_us"]} us (> 20)')
         xc.append(e)
-    if not xchk and provisional:          # Gegenprobe gibt es nur in VICE
+    if not xchk and provisional and vice_model:          # Gegenprobe gibt es nur in VICE
         warnings.append('Gegenprobe: keine Stoppuhrwerte erhalten')
     cfgA = derived.get('A', {})
     engine = {'config': 'A', 'cycles_clock_mhz': 2}
@@ -205,14 +239,18 @@ def evaluate(path, source, outdir, xchk, provisional=True):
                 dd[k] = round(v, 3)
     meta = {'source': source, 'date': today.isoformat(), 'bench_version': ver, 'vdcbasic': 'v2h',
             'provisional': bool(provisional),
-            'provisional_reason': PROV_REASON if provisional else '',
+            'provisional_reason': (PROV_REASON if vice_model else PROV_REASON_Z64K) if provisional else '',
             'vdc_config': {'r0': 127, 'r4': 159, 'r6': 120, 'r7': 133, 'r9': 1, 'bitmap': True, 'ram64k': True},
             'crosscheck': xc, 'warnings': warnings}
     res = {'meta': meta, 'records': rows, 'derived': derived, 'engine': engine, 'r36': r36res}
     os.makedirs(outdir, exist_ok=True)
     stem = os.path.join(outdir, f'{source}-{today.strftime("%Y%m%d")}')
     json.dump(res, open(stem + '.json', 'w'), indent=1)
-    open(stem + '.md', 'w').write(markdown(res, derived, thr, work))
+    md = markdown(res, derived, thr, work)
+    ref = None if vice_model else vice_reference(outdir)
+    if ref:
+        md += '\n'.join(compare_md(res, ref)) + '\n'
+    open(stem + '.md', 'w').write(md)
     print(f'Ergebnis: {stem}.json, {stem}.md ({len(rows)} Datensaetze, {len(warnings)} Warnungen)')
     for w in warnings:
         print('WARNUNG:', w)
@@ -223,7 +261,8 @@ def markdown(res, derived, thr, work):
     meta = res['meta']
     o = [f'# VDC-Messung ({meta["source"]}, {meta["date"]})', '']
     if meta['provisional']:
-        o += ['**vorläufig (VICE)**: ' + meta['provisional_reason'] + '.', '']
+        o += ['**vorläufig (' + ('Z64K' if meta['source'].startswith('z64k') else 'VICE') + ')**: '
+              + meta['provisional_reason'] + '.', '']
     o += [f'Messprogramm Version {meta["bench_version"]}, VDC-BASIC {meta["vdcbasic"]}. '
           'Alle Werte in CPU-Zyklen der jeweiligen Konfiguration (µs in Klammern).', '']
     names = [n for n in 'ABCD' if n in derived]

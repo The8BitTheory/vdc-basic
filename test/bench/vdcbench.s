@@ -713,9 +713,11 @@ main:
     sta sv_vdc,y
     dey
     bpl :-
-    ; VIC austasten
+    ; VIC austasten. Bit 7 loeschen: gelesen ist es Rasterzeile Bit 8, geschrieben Rastervergleich Bit 8.
+    ; Bliebe es stehen (Lesen in Zeile >= 256), kaeme der Raster-IRQ des Kernals nie mehr, und der
+    ; Reg-36-Test (wartet auf die Jiffy-Uhr $A2) hinge endlos (so in Z64K beobachtet).
     lda $D011
-    and #$EF
+    and #$6F
     sta $D011
     ; Variablen
     lda #0
@@ -882,6 +884,7 @@ finish_term:
     lda sv_d030
     sta $D030
     lda sv_d011
+    and #$7F                        ; Rastervergleich Bit 8 = 0 (siehe oben)
     sta $D011
     lda sv_ff00
     sta $FF00
