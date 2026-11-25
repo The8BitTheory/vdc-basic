@@ -23,6 +23,7 @@ TEST = os.path.dirname(HERE)
 ROOT = os.path.dirname(TEST)
 sys.path.insert(0, TEST)
 import vicemon as vm  # noqa: E402
+import zvt  # noqa: E402
 
 _tools = os.environ.get('DBE_TOOLS') or os.path.join(ROOT, 'tools')
 if not os.path.exists(os.path.join(_tools, 'vrl.py')):
@@ -356,6 +357,33 @@ def run(vecs, args):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def run_z64k(vecs, args):
+    """Z64K statt VICE: ohne Monitor. Grundmuster, Vergleich und Strom-Ladung macht zvt.s (test/zvt.py);
+    ein Start fuer alle Vektoren ausser der Zeitgruppe C (Zyklen messen nur der VICE-Monitor)."""
+    vecs = [v for v in vecs if v.group != 'C']
+    base = zvt.pattern()
+    exps = {}
+
+    def exp_of(v):
+        if v.name not in exps:
+            exps[v.name] = expected(v, base)
+        return exps[v.name]
+
+    selftest = Vec('selftest', h('00'), SRC, 0, T_DEFAULT, 'B', 25)
+    recs = []
+    for v in [selftest] + vecs:
+        exp, e_end, e_vram = exp_of(v)
+        params = bytes([v.src & 255, v.src >> 8, v.dst & 255, v.dst >> 8, v.T, 0, v.r6])
+        checks = [(0x1C06, e_end & 255), (0x1C07, e_end >> 8), (0x1C08, e_vram & 255), (0x1C09, e_vram >> 8)]
+        recs.append(zvt.Rec(v.name, params, v.src, v.stream, zvt.crc16(exp), checks))
+    allv = [selftest] + vecs
+    print(f'{len(vecs)} Vektoren (+ Selbsttest), Ströme ${min(v.src for v in vecs):04X}-'
+          f'${max(v.src + len(v.stream) for v in vecs) - 1:04X}', flush=True)
+    ok, bad, errors, out = zvt.verify(recs, lambda i: exp_of(allv[i])[0], DRIVER.format(fast=''), PARAM, PARAM + 5,
+                                      args.bin, args.compile, args.timeout, diag=0 if args.no_diag else 3, jobs=args.jobs)
+    return ok, bad, errors, out
+
+
 def checksum(data):
     return sum(data) & 0xFFFF
 
@@ -461,6 +489,10 @@ def write_cycles(path, res, mode, fast, append):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-c', '--compile', action='store_true', help='Treiber mit Blitz! 128 kompilieren')
+    ap.add_argument('--emu', choices=('vice', 'z64k'), default='vice',
+                    help='z64k: ohne Monitor, VRAM-Pruefsumme im 6502 (test/zvt.py), ohne Zeitgruppe C')
+    ap.add_argument('--jobs', type=int, help='z64k: parallele Z64K-Starts (Standard: min(3, Kerne - 1))')
+    ap.add_argument('--no-diag', action='store_true', help='z64k: keinen zweiten Lauf mit VRAM-Dump bei Abweichungen')
     ap.add_argument('--port', type=int)
     ap.add_argument('--timeout', type=int, default=900)
     ap.add_argument('--only', help='Regex auf Vektornamen')
@@ -486,6 +518,15 @@ def main():
     if args.hw:
         write_hw(args.hw, vectors())
         return 0
+    if args.emu == 'z64k':
+        if args.cycles or args.cycles_append or args.fast:
+            sys.exit('--cycles/--fast gibt es nur mit VICE (Stoppuhr des Monitors)')
+        ok, bad, errors, out = run_z64k(vecs, args)
+        for e in errors:
+            print(e)
+        n = len([v for v in vecs if v.group != 'C'])
+        print(f'{ok}/{n} gleich, {len(bad)} Abweichungen, Z64K-Exit {out.rc}')
+        return 0 if not bad and not errors and out.rc == 0 else 1
     args.port = vm.choose_port(args.port)
     res = run(vecs, args)
     for e in res['errors']:

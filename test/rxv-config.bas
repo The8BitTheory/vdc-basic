@@ -2,7 +2,7 @@
 1 trap 9000
 2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
 10 a=dec("1300"):bank 0
-20 for i=0 to 6:read b:poke a+i,b:next
+20 for i=0 to 7:read b:poke a+i,b:next
 30 data 2,17,34, 255,0,1,51, 0
 50 bank 0:c=peek(dec("ff00")):vmf 3000,99,600
 60 rgo 24,192:rxv a,3000:q=rgd(24)

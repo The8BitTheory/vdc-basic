@@ -23,7 +23,7 @@ darum erzeugt `run_bench.py` `build/bench/loader-z64k.prg` = `loader-hw.bas` + `
 (für `--short`/`--no-r36`) + `POKE $D7FF,0` nach dem `BSAVE` (nur dieser Lader; `loader-hw.bas` greift nicht
 auf `$D7FF` zu).
 
-Aufruf von Z64K (verifiziert): `java -cp Z64K.jar test/bench/Z64KRun.java c128 -vdc64kb -warp -debugcart
+Aufruf von Z64K (verifiziert): `java -cp Z64K.jar test/z64k/Z64KRun.java c128 -vdc64kb -warp -debugcart
 -limitcycles N -8 bench.d64 -autoload loader-z64k.prg`. `-debugcart`: Schreiben nach `$D7FF` beendet Z64K sofort
 mit diesem Wert als Exitcode; `-limitcycles N`: Exitcode 1; `-exitscreenshot DATEI` (VIC-II-Bild) möglich.
 Z64K schreibt Diskimages **nie** zurück (`BSAVE` landet nur im Speicher, nur der GUI-Dialog speichert);
@@ -47,7 +47,7 @@ Zwischendateien liegen in `build/bench/` (nicht einchecken).
 ## Dateien
 
 `vdcbench.s`/`vdcbench.cfg` Messprogramm; `loader.bas` (VICE), `loader-hw.bas` (echte Hardware, `BSAVE`
-der Ergebnisse); `run_bench.py` Harness; `Z64KRun.java` Z64K-Start mit Image-Sicherung; `evaluate.py` Auswertung.
+der Ergebnisse); `run_bench.py` Harness; `../z64k.py` und `../z64k/Z64KRun.java` (gemeinsames Z64K-Modul, Start mit Image-Sicherung); `evaluate.py` Auswertung.
 
 ## Echte Hardware (C128 mit 64-KB-VDC)
 

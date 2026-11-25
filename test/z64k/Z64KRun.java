@@ -2,7 +2,7 @@
 // Z64K schreibt Diskimages nie selbst zurueck (nur ueber den GUI-Dialog); die Beendigung per
 // -debugcart ($D7FF) oder -limitcycles laeuft ueber System.exit, deshalb genuegt ein Shutdown-Hook.
 //
-//   Z64K_SAVE=out.d64 java -cp Z64K.jar test/bench/Z64KRun.java c128 -vdc64kb ... -8 bench.d64 ...
+//   Z64K_SAVE=out.d64 java -cp Z64K.jar test/z64k/Z64KRun.java c128 -vdc64kb ... -8 bench.d64 ...
 //
 // Zugriff per Reflection auf interne Klassen (getestet mit der Z64K.jar vom 2026-11):
 // portal.Z64K.main, config.ConfigManager.getInstance() -> Feld "config" (Map) -> "config_<maschine>"

@@ -23,6 +23,7 @@ ROOT = os.path.dirname(TEST)
 sys.path.insert(0, TEST)
 sys.path.insert(0, os.path.join(TEST, 'ref'))
 import vicemon as vm  # noqa: E402
+import zvt  # noqa: E402
 import gen_vectors  # noqa: E402
 from vdcdraw import Vdc  # noqa: E402
 
@@ -267,6 +268,28 @@ def run(cs, args):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def run_z64k(cs, args):
+    """Z64K statt VICE: ohne Monitor. Grundmuster (zvt.pattern), Vergleich (CRC-16 ueber 64 KB) und Parameter-
+    Ladung macht zvt.s (test/zvt.py); ein Start fuer alle Faelle. Die Faelle wurden schon gegen dieses Grundmuster
+    berechnet (cases() mit ersetztem gen_vectors.base_pattern); Zeitgruppe C gibt es nur mit VICE."""
+    cs = [c for c in cs if c['group'] != 'C']
+    base = zvt.pattern()
+    selftest = dict(name='selftest', group='-', T=14, cmds=[], r6=25, sha1='', diff=[])
+    allc = [selftest] + cs
+    exps = {}
+
+    def exp_of(i):
+        if i not in exps:
+            exps[i] = expected(allc[i], base)
+        return exps[i]
+
+    recs = [zvt.Rec(c['name'], bytes(param_block(c)[2:]), 0, b'', zvt.crc16(exp_of(i)), [])
+            for i, c in enumerate(allc)]
+    ok, bad, errors, out = zvt.verify(recs, exp_of, DRIVER.format(fast=''), PARAM + 2, PARAM,
+                                      args.bin, args.compile, args.timeout, diag=0 if args.no_diag else 3, jobs=args.jobs)
+    return ok, bad, errors, out, len(cs)
+
+
 TARGETS = {   # Abschnitt 7
     'draw_addr': 250, 'pix_rmw': 130, 'span2': 330, 'vrun': 140, 'diag': 160, 'vdb_row': 60,
 }
@@ -327,6 +350,10 @@ def write_cycles(path, res, mode, fast):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-c', '--compile', action='store_true', help='Treiber mit Blitz! 128 kompilieren')
+    ap.add_argument('--emu', choices=('vice', 'z64k'), default='vice',
+                    help='z64k: ohne Monitor, VRAM-Pruefsumme im 6502 (test/zvt.py), ohne Zeitgruppe C')
+    ap.add_argument('--jobs', type=int, help='z64k: parallele Z64K-Starts (Standard: min(3, Kerne - 1))')
+    ap.add_argument('--no-diag', action='store_true', help='z64k: keinen zweiten Lauf mit VRAM-Dump bei Abweichungen')
     ap.add_argument('--quick', action='store_true', help='Teilmenge (gen_vectors.is_quick)')
     ap.add_argument('--group', help='kommagetrennt: S1,S0,V,L,R,B,G,Z,C')
     ap.add_argument('--only', help='Regex auf Fallnamen')
@@ -339,11 +366,21 @@ def main():
     ap.add_argument('--list', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
+    if args.emu == 'z64k':
+        if args.cycles or args.fast:
+            sys.exit('--cycles/--fast gibt es nur mit VICE (Stoppuhr des Monitors)')
+        gen_vectors.base_pattern = zvt.pattern      # Sollwerte (sha1, diff) gegen das Z64K-Grundmuster rechnen
     cs = cases(args)
     if args.list:
         for c in cs:
             print(f'{c["name"]:<28} T {c["T"]:<3} {c["cmds"]}')
         return 0
+    if args.emu == 'z64k':
+        ok, bad, errors, out, n = run_z64k(cs, args)
+        for e in errors:
+            print(e)
+        print(f'{ok}/{n} gleich, {len(bad)} Abweichungen, Z64K-Exit {out.rc}')
+        return 0 if not bad and not errors and out.rc == 0 else 1
     args.port = vm.choose_port(args.port)
     res = run(cs, args)
     for e in res['errors']:

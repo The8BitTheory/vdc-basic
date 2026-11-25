@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run BASIC listings in x128 (headless, warp) and report their exit codes.
 #
-# usage: test/run.sh [-l | -c] [-d dir] file.bas ...
+# usage: test/run.sh [-z] [-l | -c] [-d dir] file.bas ...
 #
 # Default: VDC-BASIC v3 (vdcbasic3.bin, $1C00). The disk holds BOOT (boot/boot.bas with line 50
 # replaced by  50 RUN"T" ), VDCBASIC3 and the test program T (tokenised for $4001). The emulator
@@ -19,15 +19,19 @@
 #           The files in docs/listings/data are on the disk.
 #           Until the guide is moved to v3 (P8), the listings run with v2h (vdcbasic2h.bin at
 #           $1300, BASIC at $1C01, no BOOT) as before.
+#   -z      run in Z64K instead of VICE (test/z64k.py: own Xvfb, java, Z64K.jar in ~/.local/share/z64k or
+#           Z64K_JAR). Same disk, same exit-code rule ($D7FF). Needs no VICE monitor; -d is ignored (Z64K
+#           has no VDC screenshot). Z64K starts take about 8 s each (Java); ZTIMEOUT (default 600 s) is
+#           the guard for one run. See test/README.md, section Z64K.
 #   -d dir  save a screenshot of the 80-column screen at exit as dir/<name>.png,
 #           doubled in height because VDC pixels are twice as high as wide (needs Pillow)
 #
 # A test listing ends itself with  BANK 15:POKE DEC("D7FF"),code  (0 = pass).
 # Nothing here waits for a fixed time; the cycle limit is only a guard against hangs.
 HERE=$(cd "$(dirname "$0")" && pwd)
-WRAP= ; SHOTDIR= ; COMPILE=
-while getopts lcd: o; do
-    case $o in l) WRAP=1 ;; c) COMPILE=1 ;; d) SHOTDIR=$OPTARG ;; *) exit 2 ;; esac
+WRAP= ; SHOTDIR= ; COMPILE= ; Z64K=
+while getopts zlcd: o; do
+    case $o in z) Z64K=1 ;; l) WRAP=1 ;; c) COMPILE=1 ;; d) SHOTDIR=$OPTARG ;; *) exit 2 ;; esac
 done
 shift $((OPTIND - 1))
 [ -n "$WRAP" ] && [ -n "$COMPILE" ] && { echo "-l and -c exclude each other" >&2; exit 2; }
@@ -58,6 +62,10 @@ else
     # BOOT first: -autostart disk.d64 would load the first file
     c1541 -format "test,01" d64 "$WORK/base.d64" -write "$WORK/boot.prg" boot \
         -write "$WORK/vdcbasic3" vdcbasic3 >/dev/null || exit 2
+fi
+if [ -n "$Z64K" ]; then
+    SHOTDIR=
+    python3 "$HERE/z64k.py" --check || { echo "SKIP (z64k not available)"; exit 3; }
 fi
 fail=0
 for f in "$@"; do
@@ -108,6 +116,12 @@ for f in "$@"; do
     fi
     shot=
     [ -n "$SHOTDIR" ] && shot="$SHOTDIR/$(basename "$f" .bas).png"
+    if [ -n "$Z64K" ]; then
+        python3 "$HERE/z64k.py" --prg "$start" --d64 "$WORK/t.d64" --limit ${LIMIT:-200000000} \
+            --timeout ${ZTIMEOUT:-600} --log "$WORK/log.txt" >"$WORK/zout.txt" 2>&1
+        rc=$?
+        cat "$WORK/zout.txt" >>"$WORK/log.txt"
+    else
     try=0
     while :; do
         x128 -default -warp -sounddev dummy -debugcart -80col -VDC64KB \
@@ -118,6 +132,7 @@ for f in "$@"; do
         try=$((try + 1))
         [ $rc -eq 143 ] && [ $try -lt 4 ] || break
     done
+    fi
     # the VDC's pixels are twice as high as wide: double the height of the screenshot
     [ -n "$shot" ] && [ -f "$shot" ] && python3 -c 'import sys; from PIL import Image; i=Image.open(sys.argv[1]); i.resize((i.width, i.height*2), Image.NEAREST).save(sys.argv[1], optimize=True)' "$shot"
     if [ $rc -eq 0 ]; then echo "PASS  $f"; else echo "FAIL  $f (exit $rc)"; tail -4 "$WORK/log.txt" | sed "s/^/      /"; fail=1; fi

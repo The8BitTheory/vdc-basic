@@ -15,7 +15,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 BUILD = os.path.join(ROOT, 'build', 'bench')
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(HERE))
 import evaluate
+import z64k
 
 PROMPT = re.compile(rb'\(C:\$([0-9a-f]{4})\) ')
 SYMS = ['remember_mem_conf', 'saved_mem_conf', 'vmc_execute', 'vms_execute']
@@ -248,7 +250,6 @@ def vice_run(port, short, no_r36, tmo):
     return out, xchk
 
 
-Z64K_JAR = os.environ.get('Z64K_JAR', os.path.expanduser('~/.local/share/z64k/Z64K.jar'))
 Z64K_CYC_PER_S = 1_000_000          # grob (Warp ~ 2-3 MHz); -limitcycles nur als Waechter
 
 
@@ -269,79 +270,33 @@ def make_z64k_loader(mode):
     run(['python3', os.path.join(ROOT, 'test', 'bastok.py'), bas, os.path.join(BUILD, 'loader-z64k.prg')])
 
 
-def start_xvfb():
-    """Eigenes Xvfb auf freier Displaynummer (-displayfd waehlt sie, kein fester Wert)."""
-    r, w = os.pipe()
-    xv = subprocess.Popen(['Xvfb', '-displayfd', str(w), '-screen', '0', '1024x768x24', '-nolisten', 'tcp'],
-                          pass_fds=[w], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    os.close(w)
-    try:
-        if not select.select([r], [], [], 30)[0]:
-            raise RuntimeError('Xvfb meldet keine Displaynummer')
-        num = os.read(r, 32).decode().strip()
-        if not num.isdigit():
-            raise RuntimeError('Xvfb beendet vor der Displaynummer')
-    except BaseException:
-        xv.kill()
-        raise
-    finally:
-        os.close(r)
-    return xv, ':' + num
-
-
 def z64k_run(mode, tmo):
-    """Hardware-Pfad (loader-hw: BSAVE) in Z64K. Z64K schreibt Images nicht selbst zurueck:
-    Z64KRun.java sichert das Image von Laufwerk 8 im Shutdown-Hook (beim debugcart-Exit). Ereignis
-    = Prozessende (Exitcode 0 vom Lader per $D7FF); -limitcycles und tmo sind nur Waechter."""
-    for t in ('Xvfb', 'java'):
-        if not shutil.which(t):
-            sys.exit(f'{t} fehlt (fuer --emu z64k noetig)')
-    if not os.path.exists(Z64K_JAR):
-        sys.exit(f'Z64K.jar nicht gefunden: {Z64K_JAR} (Umgebungsvariable Z64K_JAR)')
+    """Hardware-Pfad (loader-hw: BSAVE) in Z64K ueber test/z64k.py. Z64K schreibt Images nicht selbst
+    zurueck: Z64KRun.java sichert das Image von Laufwerk 8 im Shutdown-Hook (beim debugcart-Exit).
+    Ereignis = Prozessende (Exitcode 0 vom Lader per $D7FF); -limitcycles und tmo sind nur Waechter."""
+    msg = z64k.available()
+    if msg:
+        sys.exit(msg)
     make_z64k_loader(mode)
     work = os.path.join(BUILD, 'z64k')
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     src = os.path.join(work, 'bench.d64')
     shutil.copy(os.path.join(BUILD, 'bench.d64'), src)
-    saved = os.path.join(work, 'saved.d64')
     out = os.path.join(BUILD, 'benchres.prg')
     if os.path.exists(out):
         os.remove(out)
-    cmd = ['java', '-cp', Z64K_JAR, os.path.join(HERE, 'Z64KRun.java'), 'c128', '-vdc64kb', '-warp', '-debugcart',
-           '-limitcycles', str(int(tmo * Z64K_CYC_PER_S * 4)), '-8', src,
-           '-autoload', os.path.join(BUILD, 'loader-z64k.prg')]
-    xv, disp = start_xvfb()
-    print(f'Xvfb {disp} (PID {xv.pid}), Z64K startet ...', flush=True)
-    log = open(os.path.join(work, 'z64k.log'), 'w')
-    t0 = time.time()
-    jp = subprocess.Popen(cmd, env=dict(os.environ, DISPLAY=disp, Z64K_SAVE=saved),
-                          stdout=log, stderr=subprocess.STDOUT)
-    try:
-        try:
-            rc = jp.wait(tmo)           # Ereignis: Prozessende (debugcart-Exit)
-        except subprocess.TimeoutExpired:
-            sys.exit(f'Waechter-Timeout (--timeout) abgelaufen nach {tmo} s (Log: {log.name})')
-    finally:
-        if jp.poll() is None:
-            jp.terminate()
-            try:
-                jp.wait(15)
-            except subprocess.TimeoutExpired:
-                jp.kill()
-        xv.terminate()
-        try:
-            xv.wait(10)
-        except subprocess.TimeoutExpired:
-            xv.kill()
-        log.close()
-    print(f'Z64K beendet nach {time.time() - t0:.0f} s, Exitcode {rc}', flush=True)
-    if rc != 0:
-        sys.exit(f'Z64K-Exitcode {rc} (0 erwartet; 1 = -limitcycles, 2 = BASIC-Fehler im Lader, 3 = Z64K-Version passt nicht zu Z64KRun.java), Log: {log.name}')
-    imgs = glob.glob(saved + '*')
-    if not imgs:
-        sys.exit(f'Z64K hat das Image nicht gesichert (Log: {log.name})')
-    run(['c1541', '-attach', imgs[0], '-read', 'benchres', out], stdout=subprocess.DEVNULL)
+    print('Z64K startet (eigenes Xvfb) ...', flush=True)
+    r = z64k.run(os.path.join(BUILD, 'loader-z64k.prg'), src, limit=int(tmo * Z64K_CYC_PER_S * 4), timeout=tmo,
+                 save=os.path.join(work, 'saved.d64'), log=os.path.join(work, 'z64k.log'))
+    print(f'Z64K beendet nach {r.secs:.0f} s, Exitcode {r.rc}', flush=True)
+    if r.rc == z64k.EXIT_TIMEOUT:
+        sys.exit(f'Waechter-Timeout (--timeout) abgelaufen nach {tmo} s (Log: {work}/z64k.log)')
+    if r.rc != 0:
+        sys.exit(f'Z64K-Exitcode {r.rc} (0 erwartet; 1 = -limitcycles, 2 = BASIC-Fehler im Lader, 3 = Z64K-Version passt nicht zu Z64KRun.java), Log: {work}/z64k.log')
+    if not r.image:
+        sys.exit(f'Z64K hat das Image nicht gesichert (Log: {work}/z64k.log)')
+    run(['c1541', '-attach', r.image, '-read', 'benchres', out], stdout=subprocess.DEVNULL)
     return out
 
 
