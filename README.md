@@ -93,7 +93,7 @@ BASIC 7.0 reserves the prefixes `$FE` (instructions) and `$CE` (functions) for t
 
 A program that contains the new tokens lists and runs correctly only while VDC-BASIC is installed.
 
-The commands that move blocks of memory switch to a configuration with RAM bank 0 and I/O visible (`$3E` in the MMU register) and restore the caller's configuration afterwards. That is why all RAM addresses given to `RTV`, `VTR`, `SWP`, `VCC`, `VMB`, `VCL`, `VMS` and `RXV` refer to bank 0, whatever `BANK` says.
+The commands that move blocks of memory switch to a configuration with RAM bank 0 and I/O visible (`$3E` in the MMU register) and restore the caller's configuration afterwards. That is why all RAM addresses given to `RTV`, `VTR`, `SWP`, `VCC`, `VMB`, `VCL`, `VMS` and `RXV` refer to bank 0, whatever `BANK` says. (Exception: the run list of a `VCL` entry of type 9 lies in bank 1; during that entry the lowest 16 KB of RAM are common to both banks.)
 
 The zero page and other locations the extension uses are listed at the end of the [command reference](docs/reference/commands.md#memory-used-by-vdc-basic).
 
@@ -132,7 +132,7 @@ With v3 the compiled program must use runtime image 2, which loads at `$4001`, a
 ## Known limits
 
 - `DISP`, `ATTR` and `CRSR` accept 0–65535 only; negative values are not wrapped.
-- `VCL` entry types 9–11 are reserved and not implemented (type 8 is `RXV` since v3; the former plan for `VMO`/`VMA` entries is dropped), as is the "sleep" entry mentioned in the source comments.
+- `VCL` entry types 10–11 are reserved and not implemented (type 8 is `RXV` and type 9 `VMS` with the list in bank 1 since v3; the former plan for `VMO`/`VMA` entries is dropped), as is the "sleep" entry mentioned in the source comments.
 - `RXV` does not check its stream: a stream without end token, a stream in `$D000`–`$DFFF` or `$FF00`–`$FF04`, or `src` pointing at the file header instead of the stream give undefined results.
 - Parameters are checked for their range and for nothing else: no clipping, no check that a target lies inside the picture. This holds for the drawing commands too: an x beyond the row continues in the next row, addresses wrap from 65535 to 0.
 - `VDL`/`VDR`/`VDB` have no XOR mode in chunky mode (`VDM 1`): there `c` is the colour 0–15. In bitmap mode `c` = 2 inverts.
@@ -152,7 +152,7 @@ The guide collects the practical consequences in [chapter 13](docs/13-speed-and-
 | v2e | May 2025 | `VCS` and `VMP`: text in bitmap modes |
 | v2f | Jun 2025 | `VMC`: negative steps |
 | v2g | Oct 2025 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
-| v3 | (in development) | Moved to `$1C00`, header with fixed addresses at `$1C00`–`$1C0F`, BASIC text at `$4001`, boot loader `BOOT`. New: `RXV` (unpack a VRL stream from bank 0 into VRAM, threshold T at `$1C04`), `VCL` entry type 8 (`RXV`), `VMS` entry type 3 (source skip, for clipping sprites at the edge of a viewport); `VDM`, `VDL`, `VDR`, `VDB` (drawing area, line, rectangle outline, filled box in bitmap and chunky mode, block fill for long middle parts). |
+| v3 | (in development) | Moved to `$1C00`, header with fixed addresses at `$1C00`–`$1C0F`, BASIC text at `$4001`, boot loader `BOOT`. New: `RXV` (unpack a VRL stream from bank 0 into VRAM, threshold T at `$1C04`), `VCL` entry type 8 (`RXV`), `VCL` entry type 9 (`VMS` with the list in RAM bank 1), `VMS` entry type 3 (source skip, for clipping sprites at the edge of a viewport); `VDM`, `VDL`, `VDR`, `VDB` (drawing area, line, rectangle outline, filled box in bitmap and chunky mode, block fill for long middle parts). |
 | v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0; `VCL` with an unknown entry type no longer hangs. New: `VCL` entry type 13 (`SYN` with register/value pairs, e.g. an atomic page flip inside a list), optionally without waiting when the border has already begun. Tests, guide and reference added. |
 
 ## Credits

@@ -1,6 +1,6 @@
 # Command reference
 
-VDC-BASIC v2h: 23 instructions and 2 functions (v3: 28), grouped by what they work on. Parts marked **(v3)** need VDC-BASIC v3 (`vdcbasic3.bin` at `$1C00`, see the [README](../../README.md)): `RXV`, `VDM`, `VDL`, `VDR`, `VDB`, `VCL` entry type 8 and `VMS` entry type 3.
+VDC-BASIC v2h: 23 instructions and 2 functions (v3: 28), grouped by what they work on. Parts marked **(v3)** need VDC-BASIC v3 (`vdcbasic3.bin` at `$1C00`, see the [README](../../README.md)): `RXV`, `VDM`, `VDL`, `VDR`, `VDB`, `VCL` entry types 8 and 9 and `VMS` entry type 3.
 
 Everything stated here was either checked by a listing in `test/` or read directly from `src/vdcbasic.asm`.
 
@@ -485,6 +485,7 @@ A list saves the time BASIC needs to read and evaluate each statement, which is 
 
 - The list may be anywhere in bank 0 except `$D000`–`$DFFF`, and may have any length.
 - An unknown type prints `INVALID` and ends the command.
+- **(v3)** Entry type 9 runs a `VMS` whose run list lies in RAM bank 1 (`$4000`–`$CFFF` or `$E000`–`$FEFF`); the `VCL` list itself stays in bank 0.
 
 ---
 

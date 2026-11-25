@@ -46,6 +46,7 @@
 ;               rxv: unpack a VRL stream from bank 0 into VRAM (token $fe41), vcl command 8 = rxv
 ;               vms: command 3 = source skip (read position n bytes on, nothing written)
 ;               vdm, vdl, vdr, vdb: drawing in bitmap (1 bpp) and chunky (4 bpp), tokens $fe42, $fe3e-$fe40 (P2c)
+;               vcl: command 9 = vms with the list in bank 1 (16 KB common RAM during the entry, P2d)
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v3 installed"}
@@ -671,8 +672,12 @@ vms_execute
     ; the caller's memory configuration was stored by remember_mem_conf.
     ; the whole list is read with RAM 0 and I/O mapped in ($3e), so it may lie
     ; under the BASIC ROM; the caller's configuration is restored at the end.
-    lda saved_mem_conf
-    sta vms_saved_cr
+    lda #$3e
+vms_execute_a               ; A = $ff00 while the list is read: $3e (bank 0) or $7e (bank 1, VCL 9, P2d)
+    ldx saved_mem_conf
+    stx vms_saved_cr
+    sta saved_mem_conf      ; vmc_execute ends with $ff00 = saved_mem_conf: the configuration stays A
+    sta $ff00
 
     ldx #24
     jsr vdc_reg_X_to_A
@@ -745,7 +750,6 @@ vms_execute
 
 ;------- block copy
 .vms_block_copy_1
-    jsr remember_mem_conf   ;also sets mmu to block 0
     clc
     lda (arg_address),y
     adc arg_address2
@@ -785,7 +789,6 @@ vms_execute
 ; command 2 is intended as a single-use command for now.
 ;  it is intended to be used for square, non-transparent sprites.
 .vms_block_copy_2
-    jsr remember_mem_conf   ;also sets mmu to block 0
     clc
     lda (arg_address),y
     sta arg3
@@ -1335,7 +1338,8 @@ vcs
 ;  6: vmw with 2 parameters
 ;  7: vmw with 4 parameters (vaddr, byte, reps, step)
 ;  8: rxv with 2 parameters (src, dst)
-;  9-11: reserved
+;  9: vms with 3 parameters, list in bank 1 (P2d)
+; 10-11: reserved
 ; 12: vms with 3 parameters
 ; 13: syn: n, then n pairs of register, value (n = 0: just wait for end of text window)
 ; ff: sleep with 1 parameter (jiffies to sleep)
@@ -1509,22 +1513,40 @@ vcl
     jmp .vcl_vmw_next
 
     ; VMS (12): source, target, address of command list (bank 0)
+    ; VMS (9): the same with the list in bank 1 (docs/v3/P2d-vms-bank1.md). during the entry the bottom
+    ;  16 KB are common RAM ($d506), so VDC-BASIC ($1c00-$3fff) stays visible with $ff00 = $7e
 .vcl_check_vms
     lda vcl_command_id
     cmp #8
     beq .vcl_rxv
     cmp #12
+    beq +
+    cmp #9
     bne .vcl_handle_unknown
-    lda arg_address         ; VMS uses arg_address and offset_1 for its own list: keep VCL's
++   lda arg_address         ; VMS uses arg_address and offset_1 for its own list: keep VCL's
     pha
     lda arg_address + 1
     pha
     lda offset_1
     pha
-    lda vcl_saved_cr        ; VMS reads its list header via the Kernal (FETCH): run it from the caller's configuration
+    lda $d506               ; $ff00 = $3e here (I/O on)
+    sta vcl_saved_rcr
+    lda vcl_saved_cr        ; VMS prints its error with k_primm: give it the caller's configuration to restore
     sta $ff00
-    jsr remember_mem_conf
-    jsr vms_execute
+    jsr remember_mem_conf   ; $ff00 = $3e again
+    lda #$3e                ; type 12: read the list from bank 0
+    ldx vcl_command_id
+    cpx #12
+    beq +
+    lda vcl_saved_rcr       ; type 9: common RAM 16 KB at the bottom ...
+    and #$f0
+    ora #$07
+    sta $d506
+    lda #$7e                ; ... and read the list from bank 1 (RAM, I/O)
++   jsr vms_execute_a       ; returns with the caller's configuration (bank 0)
+    jsr remember_mem_conf   ; $ff00 = $3e: I/O for $d506
+    lda vcl_saved_rcr       ; common RAM as before
+    sta $d506
     pla
     sta offset_1
     pla
@@ -2810,7 +2832,8 @@ vmp_length          !byte 0 ; length of the text to print
 vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
 vms_count_hi        !byte 0     ; VMS: number of commands, high byte
 vms_saved_cr        !byte 0     ; VMS: memory configuration of the caller
-vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,3,0,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8 = rxv, 9-11 not implemented, 12 = vms. 13 = syn is handled separately (variable length)
+vcl_saved_rcr       !byte 0     ; VCL 9: $d506 of the caller
+vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,3,5,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8 = rxv, 9 = vms (bank 1), 10-11 not implemented, 12 = vms. 13 = syn is handled separately (variable length)
 
 vms_block_source    !word 0;
 vmp_bank            !byte 0
@@ -2855,4 +2878,5 @@ draw_buf            !fill 64, 0 ; middle bytes of an inverted span (xor_run)
     !error "draw: layout of the work bytes"
 }
 
+; also VCL 9 (P2d): with 16 KB common RAM all code and data must be below $4000
 !if * > $4000 { !error "VDC-BASIC v3 endet bei ", *, ", erlaubt bis $3FFF" }

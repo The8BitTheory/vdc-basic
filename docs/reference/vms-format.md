@@ -1,6 +1,6 @@
 # VMS list format
 
-A run list for [`VMS`](commands.md#vms) describes how the packed sprite data in VRAM is spread over the screen. It lies in CPU RAM bank 0.
+A run list for [`VMS`](commands.md#vms) describes how the packed sprite data in VRAM is spread over the screen. It lies in CPU RAM bank 0, or in bank 1 when it is used through a [VCL](vcl-format.md) entry of type 9 (v3).
 
 ## Header
 
