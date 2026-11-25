@@ -1,7 +1,7 @@
 # VCL type 7 (VMW with repetitions) with increment 0
 1 trap 9000
-2 bload"vdcbasic2h",b0,u8:sys dec("1300")
-10 a=dec("3000"):bank 0
+2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
+10 a=dec("1300"):bank 0
 20 for i=0 to 9:read b:poke a+i,b:next
 30 data 7, 52,8, 9,0, 3,0, 0,0, 0
 40 vmf 2100,0,8

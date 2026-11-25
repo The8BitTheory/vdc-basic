@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Tokenise a BASIC 7.0 + VDC-BASIC text listing into a C128 PRG.
 
-usage: bastok.py in.bas out.prg
+usage: bastok.py [--start ADDR] in.bas out.prg
+
+--start: address of the first line (default $1C01; $4001 for VDC-BASIC v3 programs).
+ADDR may be decimal, 0x4001 or $4001.
 
 Lines starting with '#' and empty lines are skipped. Letters are case-insensitive
 and become unshifted PETSCII. {n} inside a string inserts the byte n (decimal).
@@ -84,7 +87,14 @@ def tokenize_line(text, toks, maxlen):
 
 
 def main():
-    src, dst = sys.argv[1], sys.argv[2]
+    global START
+    args = sys.argv[1:]
+    if args and args[0] == "--start":
+        START = int(args[1].replace("$", "0x"), 0)
+        args = args[2:]
+    if len(args) != 2:
+        sys.exit("usage: bastok.py [--start ADDR] in.bas out.prg")
+    src, dst = args
     toks = load_tokens()
     maxlen = max(map(len, toks))
     prg = bytearray([START & 255, START >> 8])

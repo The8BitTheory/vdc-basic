@@ -1,6 +1,6 @@
 # Behaviour checks behind the command reference. Exit code = number of the first failing check.
 1 trap 9000
-2 bload"vdcbasic2h",b0,u8:sys dec("1300")
+2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
 10 r=1:rgw 26,243:if rgd(26)<>243 then 8995
 11 r=2:rga 26,240:if rgd(26)<>240 then 8995
 12 r=3:rgo 26,5:if rgd(26)<>245 then 8995
@@ -19,7 +19,7 @@
 43 r=14:vmc 2100,2700,2,2,80,3:if vmd(2700)<>1 or vmd(2780)<>4 or vmd(2781)<>5 then 8995
 44 r=15:vmc 2100,3000,2,2,-80:if vmd(3000)<>1 or vmd(2920)<>3 or vmd(2921)<>4 then 8995
 45 r=16:vmc 2104,3100,2,2,80,-2:if vmd(3100)<>5 or vmd(3101)<>6 or vmd(3180)<>3 or vmd(3181)<>4 then 8995
-50 a=dec("5000"):bank 0:for i=0 to 15:poke a+i,i+1:next:bank 15
+50 a=dec("a000"):bank 0:for i=0 to 15:poke a+i,i+1:next:bank 15
 51 r=17:vmf 2100,0,1900:rtv a,2100,3:if vmd(2100)<>1 or vmd(2102)<>3 or vmd(2103)<>0 then 8995
 52 r=18:vtr 2100,a+256,3:bank 0:x=peek(a+256):y=peek(a+258):bank 15:if x<>1 or y<>3 then 8995
 53 r=19:vmw 2100,99:swp 2100,a,3:bank 0:x=peek(a):bank 15:if x<>99 or vmd(2100)<>1 then 8995

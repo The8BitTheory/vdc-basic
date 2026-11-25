@@ -1,7 +1,7 @@
 # VCL: type 13 with the high byte of n set waits only when outside the border; registers are still written
 1 trap 9000
-2 bload"vdcbasic2h",b0,u8:sys dec("1300")
-10 a=dec("5000"):bank 0:c=rgd(26)
+2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
+10 a=dec("a000"):bank 0:c=rgd(26)
 20 rem 13,n=0 (edge): every call waits for the next border
 30 poke a,13:poke a+1,0:poke a+2,0:poke a+3,0
 40 t=ti:for i=1 to 50:vcl a:next:e=ti-t

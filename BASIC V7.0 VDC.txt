@@ -191,7 +191,7 @@ OFF;fe24;
 FAST;fe25;
 SLOW;fe26;
 
-#VDC Basic Tokens
+#VDC Basic Tokens (vdcbasic v3)
 RGW;fe27;
 RGA;fe28;
 RGO;fe29;

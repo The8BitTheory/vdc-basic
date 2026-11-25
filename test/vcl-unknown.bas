@@ -1,7 +1,7 @@
 # VCL: an unknown entry type (14) prints INVALID and ends the list; BASIC carries on
 1 trap 9000
-2 bload"vdcbasic2h",b0,u8:sys dec("1300")
-10 a=dec("5000"):bank 0
+2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
+10 a=dec("a000"):bank 0
 20 for i=0 to 11:read b:poke a+i,b:next
 30 data 6, 184,11, 44,0, 14, 6, 185,11, 55,0, 0
 40 vmf 3000,0,2:vcl a

@@ -1,7 +1,7 @@
 # VMS: a list longer than 256 bytes (100 type 1 entries of one byte each), above $4000
 1 trap 9000
-2 bload"vdcbasic2h",b0,u8:sys dec("1300")
-10 a=dec("5000"):bank 0:poke a,0:poke a+1,100:poke a+2,0
+2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
+10 a=dec("a000"):bank 0:poke a,0:poke a+1,100:poke a+2,0
 20 for i=0 to 99:p=a+3+i*4:poke p,1:poke p+1,i*2:poke p+2,0:poke p+3,1:vmw 2000+i,i+1:next
 30 vmf 2100,0,200
 40 vms 2000,2100,a

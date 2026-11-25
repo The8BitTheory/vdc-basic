@@ -40,11 +40,14 @@
 ;               vcl: command 13 = syn, with optional register writes
 ;               vcl: unknown command no longer hangs (printed INVALID with the KERNAL banked out)
 ;               vcl: command 13 with high byte of n <> 0 does not wait if already in the vertical border
+; v3
+; 2026          moved to $1c00 (BASIC text now starts at $4001, see boot/boot.bas),
+;               header with fixed addresses at $1c00-$1c0f
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
-!macro message {!pet "vdc basic v2h installed"}
+!macro message {!pet "vdc basic v3 installed"}
 
-  !to "vdcbasic2h.bin", cbm
+  !to "vdcbasic3.bin", cbm
 
   !source <6502/std.a>    ; for +bit16
   !source <6502/opcodes.a>  ; for AND/ORA self-mods
@@ -102,7 +105,24 @@ MODIFIED8   = $ff ; dummy value
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; entry point: intercept four BASIC vectors
 ;    * = $0ac6
-    * = $1300
+    * = $1c00
+; header: fixed addresses, part of the interface (docs/v3/P2a-relocate.md, 2.1)
+!if * != $1c00 { !error "header: entry not at $1c00" }
+    jmp install             ; $1c00: SYS 7168 installs VDC-BASIC
+!if * != $1c03 { !error "header: version not at $1c03" }
+    !byte $30               ; $1c03: version, BCD ($30 = v3.0)
+!if * != $1c04 { !error "header: threshold not at $1c04" }
+    !byte 14                ; $1c04: threshold T for block fill (RXV, VDL/VDR/VDB spans), P2b
+!if * != $1c05 { !error "header: reserved byte not at $1c05" }
+    !byte 0                 ; $1c05: reserved
+!if * != $1c06 { !error "header: rxv_end not at $1c06" }
+    !word 0                 ; $1c06: RXV, address behind the end token of the last stream, P2b
+!if * != $1c08 { !error "header: rxv_vram not at $1c08" }
+    !word 0                 ; $1c08: RXV, VRAM address behind the last byte written or skipped, P2b
+!if * != $1c0a { !error "header: reserved bytes not at $1c0a" }
+    !byte 0,0,0,0,0,0       ; $1c0a-$1c0f: reserved
+!if * != $1c10 { !error "header: install not at $1c10" }
+install
     ; three are consecutive
     ldx #$05
 -     lda vectors, x
@@ -1588,3 +1608,4 @@ vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,0,0,0,0,5    ;first byte is dummy-byt
 vms_block_source    !word 0;
 vmp_bank            !byte 0
 
+!if * > $4000 { !error "VDC-BASIC v3 endet bei ", *, ", erlaubt bis $3FFF" }

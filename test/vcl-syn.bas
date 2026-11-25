@@ -1,7 +1,7 @@
 # VCL: SYN entries (type 13): n = 0, n = 2 register writes, and a 323-byte entry with n = 80
 1 trap 9000
-2 bload"vdcbasic2h",b0,u8:sys dec("1300")
-10 a=dec("5000"):bank 0:c=rgd(26):d=rgd(27)
+2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
+10 a=dec("a000"):bank 0:c=rgd(26):d=rgd(27)
 20 rem 13,n=0, then vmw 3000,11
 30 p=a:poke p,13:p=p+1:w=0:gosub 1000:poke p,6:p=p+1:w=3000:gosub 1000:w=11:gosub 1000:poke p,0
 40 vmf 3000,0,8:vcl a

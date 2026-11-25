@@ -2,11 +2,27 @@
 
 A BASIC 7.0 extension for the Commodore 128 that opens up the 80-column chip (VDC 8563/8568). It adds 23 instructions and 2 functions for reading and writing VDC registers and video RAM, and for filling, copying and blitting inside video RAM at the speed of the chip.
 
-Current version: **v2h**, file `vdcbasic2h.bin`, load address `$1300`.
+Current version: **v3** (in development), file `vdcbasic3.bin`, load address `$1C00`. BASIC programs start at `$4001`; the boot loader `boot/boot.bas` (on disk as `BOOT`) sets this up, loads and installs VDC-BASIC:
 
 ```
-BLOAD "VDCBASIC2H",B0 : SYS DEC("1300")
+RUN "BOOT"
 ```
+
+The guide and its listings still describe v2h (`vdcbasic2h.bin` at `$1300`, `BLOAD "VDCBASIC2H",B0 : SYS DEC("1300")`); they move to v3 in a later step.
+
+### Memory and loading (v3)
+
+| Bank 0 | Use |
+|---|---|
+| `$1300`–`$1BFF` | free (e.g. for lists that must lie below `$4000`) |
+| `$1C00`–`$1C0F` | header with fixed addresses: `$1C00` `JMP install` (`SYS 7168`), `$1C03` version (`$30` = v3.0), `$1C04` block fill threshold, `$1C06`–`$1C09` results of `RXV` (planned), the rest reserved |
+| `$1C10`–`$2505` | code and variables of VDC-BASIC; up to `$3FFF` is reserved for it |
+| `$4000` | 0 (the byte before the program text) |
+| `$4001`– | BASIC program, or a Blitz! program with runtime image 2 |
+
+`BOOT` runs twice: started at `$1C01`, it sets the start of BASIC text to `$4001` (`$2D/$2E`) and loads itself there with `RUN"BOOT"`; the second pass loads `VDCBASIC3` to `$1C00`, installs it with `SYS 7168`, checks the version byte and ends with `NEW`. To start a program instead, replace line 50 with `50 RUN"PROGRAM"`. Put `BOOT` first on the disk so that `-autostart disk.d64` in VICE (which loads the first file) works; `tools/mkboot.py` writes a C128 boot sector that runs `BOOT` when the machine is switched on with the disk in the drive.
+
+**`GRAPHIC 1`–`4` must not be used with v3**: the VIC bitmap (`$2000`–`$3FFF`) and its colour memory (`$1C00`–`$1FFF`) overwrite VDC-BASIC. `GRAPHIC 0` and `GRAPHIC 5` are fine, `GRAPHIC CLR` is not.
 
 This file is the technical view: what is in the repository, how to build and test it, how the extension hooks into BASIC. How to *use* the commands is the subject of the guide.
 
@@ -25,7 +41,9 @@ This file is the technical view: what is in the repository, how to build and tes
 |---|---|
 | `src/vdcbasic.asm` | The extension: BASIC hooks, parameter parsing, all commands |
 | `src/vdclib.a` | VDC access routines as ACME macros (register and VRAM access, block operations, RAM ↔ VRAM transfer). Usable without the BASIC part. |
-| `vdcbasic2h.bin` | Current binary, assembled from `src/` |
+| `vdcbasic3.bin` | Current binary (v3, `$1C00`), assembled from `src/` |
+| `boot/boot.bas` | Boot loader for v3 (`BOOT`) |
+| `vdcbasic2h.bin` | v2h (`$1300`), used by the guide and by `test/bench` |
 | `vdcbasic.bin`, `vdcbasicac6.bin`, `vdcbasic2c.bin` | Binaries of earlier versions |
 | `BASIC V7.0 VDC.txt` | Keyword and token table: a BASIC dialect file for RetroDevStudio / C64 Studio, also read by `test/bastok.py` |
 | `docs/` | The guide, the reference, listings, screenshots, source pictures, converter |
@@ -41,18 +59,18 @@ The source is written for the [ACME](https://sourceforge.net/projects/acme-cross
 ACME=/path/to/ACME_Lib acme src/vdcbasic.asm
 ```
 
-This writes `vdcbasic2h.bin` into the current directory.
+This writes `vdcbasic3.bin` into the current directory (`acme -l build/vdcbasic3.sym …` also writes the symbol list that the monitor scripts in `test/` use).
 
 Things to know before changing the code:
 
-- **Size.** The code must end below `$1C01`, where BASIC programs start. v2h occupies `$1300`–`$1BF6`; 10 bytes are left.
-- **Load address.** It is set by `* = $1300` near the top of the source. The 2013/2014 release was also built for `$0AC6`. The current code is too long for that: from `$0AC6` it would run past `$1300`.
+- **Size.** The code must end below `$4000`, where BASIC ROM and the program text begin; an assertion at the end of the source checks this. v3 occupies `$1C00`–`$2505`; 6906 bytes are left.
+- **Load address and header.** `* = $1c00` near the top of the source, followed by the 16-byte header. Its addresses are an interface (programs `PEEK` and `POKE` them); assertions check that every field stays where it is.
 - **BASIC ROM.** Parts of the code run with the BASIC ROM mapped in and must therefore stay below `$4000`; the macro `vdclib_assert_below_basic_rom` checks this at assembly time.
 - **Unfinished parts.** `VDL`, `VDR` and `VDB` (line, rectangle, box) exist as stubs behind the build switches `release_vdl`, `release_vdr`, `release_vdb` and are switched off. Token `$FE $3A` is a placeholder and must stay in the table so that the later tokens keep their numbers.
 
 ## How it hooks into BASIC
 
-BASIC 7.0 has four vectors that exist for extensions. `SYS DEC("1300")` points them at VDC-BASIC and prints the installation message:
+BASIC 7.0 has four vectors that exist for extensions. `SYS 7168` (`SYS DEC("1C00")`) points them at VDC-BASIC and prints the installation message:
 
 | Vector | Called by BASIC when |
 |---|---|
@@ -77,8 +95,10 @@ The zero page and other locations the extension uses are listed at the end of th
 ## Tests
 
 ```
-test/run.sh test/*.bas                           # behaviour tests
-test/run.sh -l -d docs/img docs/listings/*.bas   # the listings of the guide, with screenshots
+test/run.sh test/*.bas                           # behaviour tests, interpreted
+test/run.sh -c test/*.bas                        # the same tests compiled with Blitz! (runtime image 2)
+test/run.sh -l -d docs/img docs/listings/*.bas   # the listings of the guide (still v2h), with screenshots
+test/boot_sector.py                              # BOOT via the C128 boot sector and via -autostart disk.d64
 ```
 
 Each test is a BASIC listing. `test/bastok.py` tokenises it, `x128` from [VICE](https://vice-emu.sourceforge.io/) runs it headless in warp mode with a 64 KiB VDC, and the listing reports its result as an exit code through VICE's debug cartridge. Nothing waits for a fixed time; the cycle limit only guards against hangs. A run takes about two seconds.
@@ -96,6 +116,11 @@ Programs that use VDC-BASIC can be compiled with the Blitz BASIC compiler for th
 ```
 
 To the interpreter the two colons are empty statements, so the same source also runs uncompiled.
+
+With v3 the compiled program must use runtime image 2, which loads at `$4001`, above VDC-BASIC. The compiler chooses image 2 when the program contains a `GRAPHIC` statement; a line such as `63999 GRAPHIC 0` that is never executed is enough. Image 1 (load address `$1C01`) copies the program to `$1C00` and destroys VDC-BASIC. Load the compiled program through `BOOT` (`50 RUN"PROGRAM"`). Further findings (`docs/v3/P2a-relocate.md`, section 9):
+
+- An assignment inside an extension reaches the compiled program: `::A=VMD(2000)` works, while `VMD`/`RGD` in a compiled expression are a syntax error for the compiler.
+- An error inside an extension is caught by `TRAP` with the right `ER`. After that, however, extensions no longer work correctly in the compiled program.
 
 ## Known limits
 
@@ -117,6 +142,7 @@ The guide collects the practical consequences in [chapter 13](docs/13-speed-and-
 | v2e | May 2025 | `VCS` and `VMP`: text in bitmap modes |
 | v2f | Jun 2025 | `VMC`: negative steps |
 | v2g | Oct 2025 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
+| v3 | (in development) | Moved to `$1C00`, header with fixed addresses at `$1C00`–`$1C0F`, BASIC text at `$4001`, boot loader `BOOT`. Same commands as v2h. |
 | v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0; `VCL` with an unknown entry type no longer hangs. New: `VCL` entry type 13 (`SYN` with register/value pairs, e.g. an atomic page flip inside a list), optionally without waiting when the border has already begun. Tests, guide and reference added. |
 
 ## Credits
