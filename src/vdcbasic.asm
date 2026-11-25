@@ -45,7 +45,7 @@
 ;               header with fixed addresses at $1c00-$1c0f
 ;               rxv: unpack a VRL stream from bank 0 into VRAM (token $fe41), vcl command 8 = rxv
 ;               vms: command 3 = source skip (read position n bytes on, nothing written)
-;               tokens $fe3e-$fe40 (vdl, vdr, vdb) always present, ?syntax error until P2c
+;               vdm, vdl, vdr, vdb: drawing in bitmap (1 bpp) and chunky (4 bpp), tokens $fe42, $fe3e-$fe40 (P2c)
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v3 installed"}
@@ -248,6 +248,7 @@ instruction_strings
     !pet "vmS", "vmB"
     !pet "vdL", "vdR", "vdB"    ; $fe3e-$fe40, P2c
     !pet "rxV"                  ; $fe41
+    !pet "vdM"                  ; $fe42, P2c
     !byte 0 ; terminator
 instruction_ptrs
     !word rgw - 1, rga - 1, rgo - 1
@@ -258,11 +259,16 @@ instruction_ptrs
     !word disp - 1, attr - 1, crsr - 1
     !word vcs - 1, vmp - 1, zzz - 1, vcl - 1
     !word vms -1, vmb -1
-    !word vd_stub - 1, vd_stub - 1, vd_stub - 1
+    !word vdl - 1, vdr - 1, vdb - 1
 .rxv_entry
     !word rxv - 1
+.vdm_entry
+    !word vdm - 1
 !if .rxv_entry - instruction_ptrs != 2 * ($41 - FIRST_0xFE_TOKEN) {
     !error "instruction table: rxv must be token $fe41"
+}
+!if .vdm_entry - instruction_ptrs != 2 * ($42 - FIRST_0xFE_TOKEN) {
+    !error "instruction table: vdm must be token $fe42"
 }
 
 function_strings
@@ -1546,10 +1552,1026 @@ vcl
 
 }
 
-; VDL, VDR, VDB (tokens $fe3e-$fe40): implemented in P2c (docs/v3/P2c-draw.md), until then ?SYNTAX ERROR
-vd_stub
-    ldx #11                 ; runs with $ff00 = 0 like execute_instruction
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; vdm, vdl, vdr, vdb - drawing in bitmap (mode 0, 1 bpp) or chunky (mode 1, 4 bpp). spec: docs/v3/P2c-draw.md
+;  VDM mode,base,stride   VDL x1,y1,x2,y2,c   VDR x,y,w,h,c (outline)   VDB x,y,w,h,c (filled)
+;  no clipping, addresses wrap at $ffff. run with $ff00 = 0 like execute_instruction (no RAM access
+;  except the own state). a pixel position is the byte address plus a "bit index" p: mode 0 p = x and 7
+;  (bit 7 - p), mode 1 p = 0 (high nibble, even x) or 4 (low nibble, odd x). a pixel covers the bits
+;  p .. p + w1 (w1 = 0 or 3): mask = lmask(p) and rmask(p + w1).
+draw_ad     = $0a           ; word: VRAM address for pix_rmw, span_draw, xor_run
+draw_mk     = $0c           ; mask for pix_rmw
+draw_t      = $0d           ; pix_rmw: byte read
+draw_cu     = $0e           ; word: VDL walking address, VDR/VDB row address
+draw_p      = $10           ; bit index of the current pixel
+draw_e      = $11           ; word, signed: Bresenham error term
+draw_cnt    = $13           ; word: negative counter (counts up to 0)
+draw_ln     = $8d           ; word: run length for run/xor_run, byte distance for span_prep
+draw_d2     = $26           ; word: VDL 2 * minor delta ($26-$2a: work bytes of VCL/VMS, free here)
+draw_d2m    = $28           ; word: VDL 2 * minor - 2 * major
+draw_sp     = $2a           ; bit index of the first pixel of a span
+draw_sa     = arg5          ; word: VDL first byte of the current run (c is no longer needed)
+; parameters (arg1-arg5)
+draw_x1     = arg1          ; VDL x1, VDR/VDB x
+draw_y1     = arg2          ; VDL y1, VDR/VDB y
+draw_x2     = arg3          ; VDL x2, VDR/VDB w
+draw_y2     = arg4          ; VDL y2, VDR/VDB h
+draw_c      = arg5
+
+!macro draw_seek {          ; R18/R19 = draw_ad; keeps A, changes X and Y
+    ldy draw_ad + 1
+    ldx #18
+    stx vdc_reg
+    +vdc_sty
+    inx
+    ldy draw_ad
+    stx vdc_reg
+    +vdc_sty
+}
+
+!macro draw_add_stride .z { ; word at .z += stride
+    clc
+    lda .z
+    adc draw_stride
+    sta .z
+    lda .z + 1
+    adc draw_stride + 1
+    sta .z + 1
+}
+
+!zone draw {
+;--------------------------------------------------------------------------------
+; VDM mode,base,stride
+vdm
+    jsr complex_instruction_parse3args
+    jsr .end_check
+    lda arg1 + 1
+    bne .err14
+    lda arg1
+    cmp #2
+    bcs .err14
+    tay
+    lda arg3
+    ora arg3 + 1
+    beq .err14              ; stride 0
+    sty draw_mode
+    ldx #3                  ; base, stride
+-   lda arg2, x
+    sta draw_base, x
+    dex
+    bpl -
+    rts
+
+.end_check                  ; ?SYNTAX ERROR if the statement goes on (too many parameters), then I/O on
+    jsr chrgot
+    bne .err11
+    jmp io_on
+.err11
+    ldx #11
+    +bit16                  ; skip the next instruction
+.err14
+    ldx #14
     jmp ($0300)             ; BASIC error vector
+
+;--------------------------------------------------------------------------------
+; VDL x1,y1,x2,y2,c
+vdl
+    jsr .parse5
+    ldx #6                  ; all four coordinates 0-16383
+-   lda arg1 + 1, x
+    cmp #$40
+    bcs .err14
+    dex
+    dex
+    bpl -
+    jsr .setup
+    jsr draw_begin
+    jsr .diffs
+    lda draw_dx             ; dx >= dy: x-major
+    cmp draw_dy
+    lda draw_dx + 1
+    sbc draw_dy + 1
+    bcs +
+    jmp .ymajor
++   bit draw_dxn
+    bpl +
+    jsr .swap               ; x1 <= x2
+    jsr .diffs
++   lda draw_dy
+    ora draw_dy + 1
+    bne .xslope
+    ; dy = 0: one span from x1 to x2
+    jsr .row_y1
+    lda draw_x2
+    ldx draw_x2 + 1
+    jsr .xrange
+    jsr .row_span
+    jmp draw_end
+
+.xslope
+    jsr .set_ss             ; ss = +-stride
+    ldx #2                  ; minor = dy, major = dx
+    ldy #0
+    jsr .slope
+    jsr .addr_pt
+    lda draw_d2             ; 2 dy >= dx: runs of 1-2 pixels, one pixel per step
+    cmp draw_dx
+    lda draw_d2 + 1
+    sbc draw_dx + 1
+    bcc .xruns
+    lda #$80                ; x-major
+    jsr .ppx_line
+    jmp draw_end
+
+.xruns                      ; run slicing: a span whenever y changes
+    lda draw_ad
+    sta draw_cu
+    sta draw_sa
+    lda draw_ad + 1
+    sta draw_cu + 1
+    sta draw_sa + 1
+    lda draw_p
+    sta draw_sp
+.xl
+    inc draw_cnt
+    bne +
+    inc draw_cnt + 1
+    beq .xl_end
++   lda draw_e + 1
+    bmi .xl_flat
+    ora draw_e
+    beq .xl_flat
+    jsr .endrun             ; run ends at x: span, then next row
+    clc
+    lda draw_cu
+    adc draw_ss
+    sta draw_cu
+    lda draw_cu + 1
+    adc draw_ss + 1
+    sta draw_cu + 1
+    jsr .xadv
+    lda draw_cu
+    sta draw_sa
+    lda draw_cu + 1
+    sta draw_sa + 1
+    lda draw_p
+    sta draw_sp
+    clc
+    lda draw_e
+    adc draw_d2m
+    sta draw_e
+    lda draw_e + 1
+    adc draw_d2m + 1
+    sta draw_e + 1
+    jmp .xl
+.xl_flat
+    jsr .xadv
+    clc
+    lda draw_e
+    adc draw_d2
+    sta draw_e
+    lda draw_e + 1
+    adc draw_d2 + 1
+    sta draw_e + 1
+    jmp .xl
+.xl_end
+    jsr .endrun
+    jmp draw_end
+
+.xadv                       ; one pixel to the right: p += pw, carry into draw_cu
+    lda draw_p
+    clc
+    adc draw_pw
+    cmp #8
+    bcc +
+    and #7
+    inc draw_cu
+    bne +
+    inc draw_cu + 1
++   sta draw_p
+    rts
+
+.endrun                     ; span from (draw_sa, draw_sp) to (draw_cu, draw_p) in one row
+    lda draw_p
+    ora draw_w1
+    sta draw_ep
+    lda draw_cu
+    cmp draw_sa
+    bne .er_span
+    lda draw_cu + 1
+    cmp draw_sa + 1
+    bne .er_span
+    ldx draw_ep             ; inside one byte
+    lda .rmtab, x
+    ldx draw_sp
+    and .lmtab, x
+    sta draw_mk
+    lda draw_cu
+    sta draw_ad
+    lda draw_cu + 1
+    sta draw_ad + 1
+    jmp .pix_rmw_f
+.er_span
+    sec
+    lda draw_cu
+    sta draw_ea
+    sbc draw_sa
+    sta draw_ln
+    lda draw_cu + 1
+    sta draw_ea + 1
+    sbc draw_sa + 1
+    sta draw_ln + 1
+    jsr .span_prep
+    lda draw_sa
+    sta draw_ad
+    lda draw_sa + 1
+    sta draw_ad + 1
+    jmp .span_draw
+
+.ymajor                     ; one pixel per row
+    bit draw_dyn
+    bpl +
+    jsr .swap               ; y1 <= y2
+    jsr .diffs
++   ldx #0                  ; minor = dx, major = dy
+    ldy #2
+    jsr .slope
+    jsr .set_ss             ; ss = +stride (y1 <= y2)
+    jsr .addr_pt
+    lda #0                  ; y-major
+    ldx draw_dx
+    bne +
+    ldx draw_dx + 1
+    bne +
+    lda #$40                ; dx = 0: vertical run
++   jsr .ppx_line
+    jmp draw_end
+
+.set_ss                     ; draw_ss = stride, negated if draw_dyn bit 7 (y2 < y1)
+    lda draw_stride
+    ldx draw_stride + 1
+    bit draw_dyn
+    bpl +
+    eor #$ff
+    clc
+    adc #1
+    pha
+    txa
+    eor #$ff
+    adc #0
+    tax
+    pla
++   sta draw_ss
+    stx draw_ss + 1
+    rts
+
+.ppx_line                   ; A = draw_majx; one pixel per step from (draw_ad, draw_p), see .ppx
+    sta draw_majx
+    lda draw_p
+    jsr .pmask
+    sta draw_mk
+    lda draw_dxn            ; x direction (bit 7: left), bit 6: chunky
+    and #$80
+    ldx draw_mode
+    beq +
+    ora #$40
++   sta draw_xs
+    jmp .ppx
+
+.diffs                      ; draw_dx = |x2 - x1|, draw_dxn bit 7 = (x2 < x1); the same for y at offset 2
+    ldx #2
+-   sec
+    lda arg3, x
+    sbc arg1, x
+    sta draw_dx, x
+    lda arg3 + 1, x
+    sbc arg1 + 1, x
+    sta draw_dx + 1, x
+    sta draw_dxn, x
+    bpl +
+    lda #0
+    sec
+    sbc draw_dx, x
+    sta draw_dx, x
+    lda #0
+    sbc draw_dx + 1, x
+    sta draw_dx + 1, x
++   dex
+    dex
+    bpl -
+    rts
+
+.swap                       ; (x1, y1) <-> (x2, y2)
+    ldx #3
+-   lda arg1, x
+    ldy arg3, x
+    sta arg3, x
+    sty arg1, x
+    dex
+    bpl -
+    rts
+
+.slope                      ; X = offset of the minor delta, Y = of the major delta (0 = dx, 2 = dy)
+                            ; d2 = 2 minor, e = 2 minor - major, d2m = 2 minor - 2 major, cnt = -(major + 1)
+    lda draw_dx, x
+    asl
+    sta draw_d2
+    lda draw_dx + 1, x
+    rol
+    sta draw_d2 + 1
+    sec
+    lda draw_d2
+    sbc draw_dx, y
+    sta draw_e
+    lda draw_d2 + 1
+    sbc draw_dx + 1, y
+    sta draw_e + 1
+    sec
+    lda draw_e
+    sbc draw_dx, y
+    sta draw_d2m
+    lda draw_e + 1
+    sbc draw_dx + 1, y
+    sta draw_d2m + 1
+    lda draw_dx, y
+    eor #$ff
+    sta draw_cnt
+    lda draw_dx + 1, y
+    eor #$ff
+    sta draw_cnt + 1
+    rts
+
+.addr_pt                    ; draw_ad = address of (x1, y1), draw_p = its bit index
+    lda draw_y1
+    ldx draw_y1 + 1
+    jsr .row_addr
+    lda draw_x1
+    ldx draw_x1 + 1
+    jsr .xsplit
+    sta draw_p
+    clc
+    lda draw_ad
+    adc draw_tx
+    sta draw_ad
+    lda draw_ad + 1
+    adc draw_tx + 1
+    sta draw_ad + 1
+    rts
+
+;--------------------------------------------------------------------------------
+; VDR x,y,w,h,c: top, bottom, left column, right column; every pixel once
+vdr
+    jsr .rect_args
+    beq .r_done
+    jsr .row_y1             ; top
+    lda draw_cu
+    sta draw_ra
+    lda draw_cu + 1
+    sta draw_ra + 1
+    jsr .row_span
+    lda draw_y2 + 1         ; h >= 2: bottom
+    bne +
+    lda draw_y2
+    cmp #2
+    bcc .r_done
++   ldx #2                  ; y + h - 1
+    jsr .last
+    jsr .row_addr
+    jsr .ad_to_cu
+    jsr .row_span
+    lda draw_y2 + 1         ; h >= 3: columns of h - 2 pixels from row y + 1
+    bne +
+    lda draw_y2
+    cmp #3
+    bcc .r_done
++   lda draw_ra
+    sta draw_cu
+    lda draw_ra + 1
+    sta draw_cu + 1
+    +draw_add_stride draw_cu
+    ldx #0                  ; left column: draw_bo0, draw_sp
+    lda draw_sp
+    jsr .column
+    lda draw_x2 + 1         ; w >= 2: right column
+    bne +
+    lda draw_x2
+    cmp #2
+    bcc .r_done
++   ldx #2                  ; right column: draw_bo1, draw_p1
+    lda draw_p1
+    jsr .column
+.r_done
+    jmp draw_end
+
+.column                     ; A = bit index, X = 0: left column (draw_bo0), X = 2: right (draw_bo1)
+                            ; draw_cu = row address of the first pixel, h - 2 pixels
+    pha
+    clc
+    lda draw_cu
+    adc draw_bo0, x
+    sta draw_ad
+    lda draw_cu + 1
+    adc draw_bo0 + 1, x
+    sta draw_ad + 1
+    pla
+    jsr .pmask
+    sta draw_mk
+    sec                     ; cnt = -(h - 2) = 2 - h
+    lda #2
+    sbc draw_y2
+    sta draw_cnt
+    lda #0
+    sbc draw_y2 + 1
+    sta draw_cnt + 1
+    lda #0                  ; downwards
+    sta draw_dyn
+    jsr .set_ss
+    lda #$40                ; vertical run
+    sta draw_majx
+    jmp .ppx
+
+;--------------------------------------------------------------------------------
+; VDB x,y,w,h,c: filled, one span per row
+vdb
+    jsr .rect_args
+    beq .b_done
+    jsr .row_y1
+    lda draw_y2             ; cnt = -h
+    eor #$ff
+    clc
+    adc #1
+    sta draw_cnt
+    lda draw_y2 + 1
+    eor #$ff
+    adc #0
+    sta draw_cnt + 1
+-   jsr .row_span
+    +draw_add_stride draw_cu
+    inc draw_cnt
+    bne -
+    inc draw_cnt + 1
+    bne -
+.b_done
+    jmp draw_end
+
+;--------------------------------------------------------------------------------
+; shared parts of VDR and VDB: parameters, checks, x range; Z = 1: w = 0 or h = 0, nothing to draw
+.rect_args
+    jsr .parse5
+    ldx #2                  ; x + w <= 65536, y + h <= 65536
+-   clc
+    lda arg1, x
+    adc arg3, x
+    tay
+    lda arg1 + 1, x
+    adc arg3 + 1, x
+    bcc +
+    sty draw_tmp
+    ora draw_tmp
+    bne .err14b
++   dex
+    dex
+    bpl -
+    jsr .setup
+    jsr draw_begin
+    lda draw_x2
+    ora draw_x2 + 1
+    beq +
+    lda draw_y2
+    ora draw_y2 + 1
+    beq +
+    ldx #0                  ; last x = x + w - 1
+    jsr .last
+    jsr .xrange
+    lda #1                  ; Z = 0
++   rts
+
+.last                       ; X = 0: x + w - 1, X = 2: y + h - 1 -> A = low, X = high (w, h >= 1)
+    clc
+    lda arg1, x
+    adc arg3, x
+    tay
+    lda arg1 + 1, x
+    adc arg3 + 1, x
+    tax
+    tya
+    bne +
+    dex
++   dey
+    tya
+    rts
+.err14b
+    jmp .err14
+
+.xrange                     ; x1 = first x, A/X = last x -> draw_bo0/bo1 (byte offsets), draw_sp, draw_p1,
+                            ; draw_ep, then .span_prep
+    jsr .xsplit
+    sta draw_p1
+    ora draw_w1
+    sta draw_ep
+    lda draw_tx
+    sta draw_bo1
+    lda draw_tx + 1
+    sta draw_bo1 + 1
+    lda draw_x1
+    ldx draw_x1 + 1
+    jsr .xsplit
+    sta draw_sp
+    sec
+    lda draw_bo1
+    sbc draw_tx
+    sta draw_ln
+    lda draw_bo1 + 1
+    sbc draw_tx + 1
+    sta draw_ln + 1
+    lda draw_tx
+    sta draw_bo0
+    lda draw_tx + 1
+    sta draw_bo0 + 1
+    jmp .span_prep
+
+.row_y1                     ; draw_cu = row address of y1
+    lda draw_y1
+    ldx draw_y1 + 1
+    jsr .row_addr
+.ad_to_cu
+    lda draw_ad
+    sta draw_cu
+    lda draw_ad + 1
+    sta draw_cu + 1
+    rts
+
+.row_span                   ; span from draw_cu + draw_bo0 to draw_cu + draw_bo1
+    clc
+    lda draw_cu
+    adc draw_bo0
+    sta draw_ad
+    lda draw_cu + 1
+    adc draw_bo0 + 1
+    sta draw_ad + 1
+    clc
+    lda draw_cu
+    adc draw_bo1
+    sta draw_ea
+    lda draw_cu + 1
+    adc draw_bo1 + 1
+    sta draw_ea + 1
+    ; fall through to .span_draw
+
+;--------------------------------------------------------------------------------
+; span: first byte draw_ad (bits from draw_sp on), last byte draw_ea (bits up to draw_ep)
+.span_draw                  ; prepared by .span_prep; changes draw_ad, draw_ln
+    lda draw_lm
+    bit draw_single
+    bpl .sd_multi
+    sta draw_mk             ; inside one byte
+    jmp .pix_rmw_f
+.sd_multi
+    cmp #$ff
+    beq .sd_noleft
+    sta draw_mk             ; left edge, afterwards the VDC address is draw_ad + 1
+    jsr .pix_rmw_f
+    inc draw_ad
+    bne .sd_mid
+    inc draw_ad + 1
+    jmp .sd_mid
+.sd_noleft
+    bit draw_xor
+    bmi .sd_mid             ; xor_run sets the address itself
+    jsr .seek
+.sd_mid
+    lda draw_mid
+    ora draw_mid + 1
+    beq .sd_right
+    lda draw_mid
+    sta draw_ln
+    lda draw_mid + 1
+    sta draw_ln + 1
+    jsr .run
+.sd_right
+    lda draw_rm
+    cmp #$ff
+    beq .sd_done
+    sta draw_mk             ; right edge: the VDC address is draw_ea now (behind the middle)
+    lda draw_ea
+    sta draw_ad
+    lda draw_ea + 1
+    sta draw_ad + 1
+    sta draw_vh             ; so R18 is right already
+    jmp .pix_rmw_19
+.sd_done
+    rts
+
+.span_prep                  ; draw_ln = last byte - first byte, draw_sp, draw_ep
+                            ; -> draw_lm, draw_rm, draw_single, draw_mid (number of full middle bytes)
+    ldx draw_sp
+    lda .lmtab, x
+    sta draw_lm
+    ldx draw_ep
+    lda .rmtab, x
+    sta draw_rm
+    lda draw_ln
+    ora draw_ln + 1
+    bne .sp_multi
+    lda draw_lm             ; one byte: draw_lm = both masks
+    and draw_rm
+    sta draw_lm
+    lda #$80
+    sta draw_single
+    rts
+.sp_multi
+    lda #0
+    sta draw_single
+    sec                     ; mid = n - 1 + (lm = $ff) + (rm = $ff)
+    lda draw_ln
+    sbc #1
+    sta draw_mid
+    lda draw_ln + 1
+    sbc #0
+    sta draw_mid + 1
+    lda draw_lm
+    jsr .inc_if_full
+    lda draw_rm
+.inc_if_full
+    cmp #$ff
+    bne +
+    inc draw_mid
+    bne +
+    inc draw_mid + 1
++   rts
+
+;--------------------------------------------------------------------------------
+; VDC primitives
+.pr_wrap                    ; the read moved the address to (hi + 1, 0): R18 and R19 (A kept)
+    jsr .seek
+    ldy draw_ad + 1         ; after the write the address is (hi + 1, 0)
+    iny
+    sty draw_vh
+    jmp .pr_write
+
+.pix_rmw_f                  ; as .pix_rmw, but the VDC address is unknown: force R18
+    lda draw_ad + 1
+    eor #$ff
+    sta draw_vh
+.pix_rmw                    ; byte at draw_ad: bits in draw_mk get the colour (or are inverted)
+                            ; draw_vh = high byte of the current VDC address (R18 is skipped if equal)
+                            ; afterwards R31 is selected, the VDC address is draw_ad + 1, draw_vh its high byte
+    ldy draw_ad + 1
+    cpy draw_vh
+    beq +
+    sty draw_vh
+    ldx #18
+    stx vdc_reg
+    +vdc_sty
++
+.pix_rmw_19                 ; entry with R18 = high byte of draw_ad already
+    ldy draw_ad
+    ldx #19                 ; R19 last (the order of the ROM): the read gets the byte at draw_ad
+    stx vdc_reg
+    +vdc_sty
+    ldx #31
+    stx vdc_reg
+    +vdc_lda
+    sta draw_t
+draw_pix_op                 ; MODIFIED: eor #value (set/clear/colour) or lda #$ff (invert)
+    eor #MODIFIED8
+    and draw_mk
+    eor draw_t
+    cpy #$ff
+    beq .pr_wrap
+    ldx #19                 ; the read moved the address to draw_ad + 1, same high byte: R19 only
+    stx vdc_reg
+    +vdc_sty
+.pr_write
+    ldx #31
+    stx vdc_reg
+    +vdc_sta
+.pr_tail                    ; MODIFIED: rts, or clc while .ppx runs (falls through to the next pixel)
+    rts
+    ; .ppx continued: count, Bresenham step, next pixel (C = 0)
+    inc draw_cnt
+    bne +
+    inc draw_cnt + 1
+    bne +
+    jmp .ppx_end
++   bit draw_majx
+    bvs .ppx_y              ; vertical run: y only
+    lda draw_e + 1
+    bmi .ppx_flat
+    ora draw_e
+    beq .ppx_flat
+    lda draw_e              ; e > 0: x and y step
+    adc draw_d2m
+    sta draw_e
+    lda draw_e + 1
+    adc draw_d2m + 1
+    sta draw_e + 1
+    clc
+    lda draw_ad
+    adc draw_ss
+    sta draw_ad
+    lda draw_ad + 1
+    adc draw_ss + 1
+    sta draw_ad + 1
+    jmp .ppx_x
+.ppx_flat                   ; major axis only
+    lda draw_e
+    adc draw_d2
+    sta draw_e
+    lda draw_e + 1
+    adc draw_d2 + 1
+    sta draw_e + 1
+    bit draw_majx
+    bmi .ppx_x
+    clc
+.ppx_y                      ; y step: draw_ad += ss
+    lda draw_ad
+    adc draw_ss
+    sta draw_ad
+    lda draw_ad + 1
+    adc draw_ss + 1
+    sta draw_ad + 1
+    jmp .pix_rmw
+.ppx_x                      ; x step: move draw_mk, carry into draw_ad
+    bit draw_xs
+    bvs .ppx_xc
+    bmi .ppx_x0l
+    lsr draw_mk             ; mode 0, right
+    bcc .ppx_next
+    ror draw_mk             ; $80
+.ppx_inc
+    inc draw_ad
+    bne .ppx_next
+    inc draw_ad + 1
+.ppx_next
+    jmp .pix_rmw
+.ppx_x0l                    ; mode 0, left
+    asl draw_mk
+    bcc .ppx_next
+    rol draw_mk             ; $01
+.ppx_dec
+    lda draw_ad
+    bne +
+    dec draw_ad + 1
++   dec draw_ad
+    jmp .pix_rmw
+.ppx_xc                     ; mode 1: $f0 <-> $0f
+    lda draw_mk
+    eor #$ff
+    sta draw_mk
+    eor draw_xs             ; bit 7: next byte (right: now $f0, left: now $0f)
+    bpl .ppx_next
+    bit draw_xs
+    bpl .ppx_inc
+    bmi .ppx_dec            ; always
+
+.ppx                        ; one pixel per step: -draw_cnt pixels from draw_ad (mask draw_mk); draw_majx bit 7:
+                            ; x-major, bit 6: vertical run (y only); draw_ss = y step, draw_xs bit 7: x to the
+                            ; left, bit 6: chunky; Bresenham: draw_e, draw_d2, draw_d2m (not for a vertical run)
+    lda #$18                ; clc: .pix_rmw goes on with the next pixel
+    sta .pr_tail
+    jmp .pix_rmw_f
+.ppx_end
+    lda #$60                ; rts
+    sta .pr_tail
+    rts
+
+.run                        ; draw_ln >= 1 middle bytes from the current VDC address (fill or invert)
+    bit draw_xor
+    bmi .xor_run
+    lda draw_ln + 1
+    bne .run_fill
+    lda draw_ln
+    cmp rxv_T
+    bcs .run_fill
+    tax                     ; L < T: CPU
+    ldy #31
+    sty vdc_reg
+    lda draw_fv
+-   +vdc_sta
+    dex
+    bne -
+    rts
+.run_fill                   ; first byte by CPU, then L - 1 by block fill
+    bit draw_r24
+    bmi +
+    ldx #24                 ; block mode = fill, once per command
+    jsr vdc_reg_X_to_A
+    and #$7f
+    jsr A_to_vdc_reg_X
+    sec
+    ror draw_r24
++   ldx #31
+    stx vdc_reg
+    lda draw_fv
+    +vdc_sta
+    ldy draw_ln + 1
+    lda draw_ln
+    bne +
+    dey
++   sec
+    sbc #1
+    jmp vdc_do_YYAA_cycles  ; does not wait for the end
+
+.xor_run                    ; invert draw_ln >= 1 bytes from draw_ad, in pieces of up to 64 bytes
+    lda draw_ln + 1
+    bne +
+    lda draw_ln
+    cmp #65
+    bcc ++
++   lda #64
+++  sta draw_xk
+    jsr .seek31
+-   +vdc_lda
+    sta draw_buf, y
+    iny
+    cpy draw_xk
+    bne -
+    jsr .seek31
+-   lda draw_buf, y
+    eor #$ff
+    +vdc_sta
+    iny
+    cpy draw_xk
+    bne -
+    clc
+    lda draw_ad
+    adc draw_xk
+    sta draw_ad
+    bcc +
+    inc draw_ad + 1
++   sec
+    lda draw_ln
+    sbc draw_xk
+    sta draw_ln
+    bcs +
+    dec draw_ln + 1
++   ora draw_ln + 1
+    beq +
+    jmp .xor_run
++   rts
+
+.seek31                     ; R18/R19 = draw_ad, select R31, Y = 0
+    jsr .seek
+    ldx #31
+    stx vdc_reg
+    ldy #0
+    rts
+.seek                       ; R18/R19 = draw_ad
+    +draw_seek
+    rts
+
+;--------------------------------------------------------------------------------
+; addresses
+.row_addr                   ; A = y lo, X = y hi -> draw_ad = base + y * stride (mod 65536); changes A, X, Y
+    stx draw_yh
+    ldy draw_base
+    sty draw_ad
+    ldy draw_base + 1
+    sty draw_ad + 1
+    ldy draw_stride
+    sty draw_ml
+    ldy draw_stride + 1
+    sty draw_mh
+    tay
+    beq .ra_hi
+-   lsr                     ; bits of y lo, lowest first
+    tay
+    bcc +
+    clc
+    lda draw_ad
+    adc draw_ml
+    sta draw_ad
+    lda draw_ad + 1
+    adc draw_mh
+    sta draw_ad + 1
++   asl draw_ml
+    rol draw_mh
+    tya
+    bne -
+.ra_hi                      ; y hi: only the low byte of (y hi * stride lo) counts, added to the high byte
+    lda draw_yh
+    beq .ra_done
+    ldy draw_stride
+    sty draw_ml
+    lda #0
+-   lsr draw_yh
+    bcc +
+    clc
+    adc draw_ml
++   asl draw_ml
+    ldy draw_yh
+    bne -
+    clc
+    adc draw_ad + 1
+    sta draw_ad + 1
+.ra_done
+    rts
+
+.xsplit                     ; A/X = x -> draw_tx = x >> 3 (mode 0) or x >> 1 (mode 1), A = bit index
+    sta draw_tx
+    stx draw_tx + 1
+    and draw_pandm
+    ldy draw_mode
+    beq +
+    asl
+    asl
++   ldy draw_sh
+-   lsr draw_tx + 1
+    ror draw_tx
+    dey
+    bne -
+    rts
+
+.pmask                      ; A = bit index -> A = mask of one pixel; changes X, Y
+    tax
+    ora draw_w1
+    tay
+    lda .rmtab, y
+    and .lmtab, x
+    rts
+
+;--------------------------------------------------------------------------------
+; parameters and drawing state
+.parse5                     ; five values -> arg1-arg5 (left to right: missing 11, > 65535 14), end of statement
+    jsr b_parse_uint16
+    ldx #0
+-   sty arg1, x
+    sta arg1 + 1, x
+    inx
+    inx
+    cpx #10
+    beq +
+    stx draw_tmp            ; $0a-$14 belong to the expression evaluator while parsing
+    jsr b_parse_comma_uint16
+    ldx draw_tmp
+    bne -                   ; always
++   jmp .end_check
+
+.setup                      ; c for the current mode, mode constants, pix_rmw operation, fill value
+    ldx draw_mode
+    lda draw_c + 1
+    bne .err14c
+    lda draw_c
+    cmp .t_cmax, x
+    bcc +
+.err14c
+    jmp .err14
++    txa                     ; mode constants: 4 bytes from .t_mode + 4 * mode
+    asl
+    asl
+    tax
+    ldy #0
+-   lda .t_mode, x
+    sta draw_sh, y
+    inx
+    iny
+    cpy #4
+    bne -
+    lda draw_c
+    ldx draw_mode
+    bne .chunky
+    cmp #2
+    beq .invert
+    lda #0                  ; c = 0 -> $00, c = 1 -> $ff
+    sec
+    sbc draw_c
+    jmp .set_value
+.chunky
+    asl                     ; c * 17
+    asl
+    asl
+    asl
+    ora draw_c
+.set_value
+    sta draw_fv
+    sta draw_pix_op + 1
+    lda #$49                ; eor #
+    ldy #0
+    beq .set_op             ; always
+.invert
+    lda #$ff
+    sta draw_pix_op + 1
+    lda #$a9                ; lda #
+    ldy #$80
+.set_op
+    sta draw_pix_op
+    sty draw_xor
+    lda #0
+    sta draw_r24
+    rts
+
+.lmtab  !byte $ff, $7f, $3f, $1f, $0f, $07, $03, $01     ; bits from index p to the right
+.rmtab  !byte $80, $c0, $e0, $f0, $f8, $fc, $fe, $ff     ; bits up to index p
+.t_cmax !byte 3, 16         ; c < cmax
+.t_mode !byte 3, 7, 1, 0    ; mode 0: sh (x >> sh = byte offset), pandm (x and pandm = pixel in byte),
+        !byte 1, 1, 4, 3    ; mode 1: pw (bits per pixel), w1 (bits per pixel - 1)
+}
+
+draw_begin                  ; breakpoints for the cycle measurement (test/draw/run_draw.py)
+    rts
+draw_end
+    rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; rxv - unpack a VRL stream (docs/reference/vrl-format.md) from bank 0 into VRAM
@@ -1792,5 +2814,45 @@ vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,3,0,0,0,5    ;first byte is dummy-byt
 
 vms_block_source    !word 0;
 vmp_bank            !byte 0
+
+; drawing (P2c): state of VDM (5 bytes, as after installation: mode 0, base 0, stride 80) and work bytes
+draw_mode           !byte 0     ; 0 = bitmap (1 bpp), 1 = chunky (4 bpp)
+draw_base           !word 0     ; VRAM address of pixel (0, 0)
+draw_stride         !word 80    ; bytes per pixel row (directly after draw_base, see vdm)
+draw_tmp            !byte 0
+draw_sh             !byte 0     ; mode constants, set per command
+draw_pandm          !byte 0
+draw_pw             !byte 0
+draw_w1             !byte 0
+draw_fv             !byte 0     ; fill value of the middle bytes
+draw_xor            !byte 0     ; bit 7: invert (mode 0, c = 2)
+draw_r24            !byte 0     ; bit 7: R24 already switched to block fill
+draw_yh             !byte 0
+draw_ml             !byte 0
+draw_mh             !byte 0
+draw_tx             !word 0
+draw_bo0            !word 0     ; byte offset of the first x
+draw_bo1            !word 0     ; byte offset of the last x (directly after draw_bo0, see .column)
+draw_p1             !byte 0     ; bit index of the last x (draw_sp: bit index of the first x)
+draw_ep             !byte 0     ; last bit of a span (bit index + w1)
+draw_lm             !byte 0
+draw_rm             !byte 0
+draw_single         !byte 0
+draw_mid            !word 0
+draw_ea             !word 0
+draw_ra             !word 0
+draw_ss             !word 0
+draw_dx             !word 0     ; |x2 - x1|, |y2 - y1| (in this order)
+draw_dy             !word 0
+draw_dxn            !byte 0, 0  ; signs (bit 7) of x2 - x1 and y2 - y1 (at draw_dxn + 2)
+draw_dyn            !byte 0
+draw_xk             !byte 0
+draw_vh             !byte 0     ; high byte of the VDC address after .pix_rmw
+draw_majx           !byte 0     ; .ppx: bit 7 x-major, bit 6 vertical run
+draw_xs             !byte 0     ; .ppx: bit 7 x to the left, bit 6 chunky
+draw_buf            !fill 64, 0 ; middle bytes of an inverted span (xor_run)
+!if draw_bo1 - draw_bo0 != 2 | draw_dy - draw_dx != 2 | draw_dyn - draw_dxn != 2 | draw_stride - draw_base != 2 {
+    !error "draw: layout of the work bytes"
+}
 
 !if * > $4000 { !error "VDC-BASIC v3 endet bei ", *, ", erlaubt bis $3FFF" }

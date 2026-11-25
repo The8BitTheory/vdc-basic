@@ -1,4 +1,4 @@
-# VDL, VDR, VDB (tokens $FE3E-$FE40) are reserved until P2c and give ?SYNTAX ERROR; RXV keeps token $FE41
+# VDR with four parameters is a syntax error (11): tokens $FE3E-$FE40 draw since P2c (VDL, VDR, VDB), RXV keeps token $FE41
 1 trap 9000
 2 if peek(dec("1c03"))<>dec("30") then r=199:goto 8995
 10 r=1:trap 20:vdr 1,2,3,4:goto 8995

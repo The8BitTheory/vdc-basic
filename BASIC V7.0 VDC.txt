@@ -215,11 +215,11 @@ VMP;fe39;
 VCL;fe3b;
 VMS;fe3c;
 VMB;fe3d;
-#fe3e-fe40: stubs (?SYNTAX ERROR) until P2c
 VDL;fe3e;
 VDR;fe3f;
 VDB;fe40;
 RXV;fe41;
+VDM;fe42;
 RGD;ce0b;
 VMD;ce0c;
 

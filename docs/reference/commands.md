@@ -1,6 +1,6 @@
 # Command reference
 
-VDC-BASIC v2h: 23 instructions and 2 functions (v3: 24, plus the reserved VDL/VDR/VDB/VDM tokens), grouped by what they work on. Parts marked **(v3)** need VDC-BASIC v3 (`vdcbasic3.bin` at `$1C00`, see the [README](../../README.md)): `RXV`, `VCL` entry type 8 and `VMS` entry type 3.
+VDC-BASIC v2h: 23 instructions and 2 functions (v3: 28), grouped by what they work on. Parts marked **(v3)** need VDC-BASIC v3 (`vdcbasic3.bin` at `$1C00`, see the [README](../../README.md)): `RXV`, `VDM`, `VDL`, `VDR`, `VDB`, `VCL` entry type 8 and `VMS` entry type 3.
 
 Everything stated here was either checked by a listing in `test/` or read directly from `src/vdcbasic.asm`.
 
@@ -51,6 +51,7 @@ The extension occupies `$1300`–`$1BF6` and prints `VDC BASIC V2H INSTALLED`. I
 | [`VMC`](#vmc) | Copy inside VRAM: a run of bytes or a rectangle (the blit) |
 | [`RTV`](#rtv) [`VTR`](#vtr) [`SWP`](#swp) | CPU RAM → VRAM, VRAM → CPU RAM, exchange |
 | [`RXV`](#rxv) | Unpack a run-length coded picture (VRL stream) from CPU RAM into VRAM (v3) |
+| [`VDM`](#vdm) [`VDL`](#vdl) [`VDR`](#vdr-vdb) [`VDB`](#vdr-vdb) | Choose the drawing area; draw a line, a rectangle outline, a filled box in a bitmap or chunky picture (v3) |
 | [`VCC`](#vcc) | Copy 8-byte character patterns into the VDC character set |
 | [`DISP`](#disp-attr-crsr) [`ATTR`](#disp-attr-crsr) [`CRSR`](#disp-attr-crsr) | Set display start, attribute start, cursor address |
 | [`SYN`](#syn) | Wait for the vertical blank, optionally then write registers |
@@ -270,6 +271,96 @@ RXV src, dst
 
 In a [VCL](#vcl) list, entry type 8 does the same without the time BASIC needs to evaluate the statement, which matters for many small streams (tiles, parts of a picture).
 
+## Drawing
+
+**(v3)** Lines, rectangle outlines and filled boxes in a picture in VRAM. `VDM` says where the picture is and how its pixels are stored; `VDL`, `VDR` and `VDB` draw into it. The commands work on VRAM bytes only and do not care what the VDC displays: the picture may be the visible bitmap, a hidden page or a buffer that is copied later.
+
+| Mode | Pixels | Byte of pixel (x, y) | Pixel in the byte |
+|---|---|---|---|
+| 0, bitmap | 1 bit, 8 per byte | *base* + *y* × *stride* + *x* / 8 | bit 7 − (*x* AND 7): bit 7 is the left pixel |
+| 1, chunky | 4 bits, 2 per byte | *base* + *y* × *stride* + *x* / 2 | even *x*: upper four bits, odd *x*: lower four bits |
+
+Divisions round down; addresses are taken modulo 65536. The nibble order of mode 1 matches chunky mode as the guide sets it up ([chapter 5](../05-sixteen-colours.md)): bitmap bytes all `$0F`, the pixels in the attribute bytes. The VDC paints 0 bits with the upper four bits of the attribute and 1 bits with the lower four, so the left four dots of a character cell show the upper nibble. The same order is used by `VMS` entry type 8. `VDM` does not check the VDC registers; with reverse video (register 24 bit 6) the halves swap on screen.
+
+**Colour *c*:**
+
+| Mode | *c* | Effect |
+|---|---|---|
+| 0 | 0 | clear the pixels |
+| 0 | 1 | set the pixels |
+| 0 | 2 | invert the pixels (XOR) |
+| 1 | 0–15 | pixels get colour *c* |
+
+Every pixel of a figure is changed exactly once, corners of `VDR` and the pixels of a line included. Drawing the same figure twice with *c* = 2 therefore restores the picture. There is no XOR in mode 1.
+
+**No clipping.** Nothing is checked against the size of the picture, as with all VDC-BASIC commands. An *x* beyond the end of a row continues in the next row, and addresses wrap from 65535 to 0. Keep figures inside the picture.
+
+**Speed.** Pixels that lie in one row are written as a span: the partly covered bytes at both ends by reading and writing them back, the full bytes in between in one go. A middle part of at least *T* bytes (the threshold at `$1C04`, see [`RXV`](#rxv)) is written by the VDC's block fill, shorter ones by the CPU; *T* changes the speed, never the result. A vertical run costs one read and one write per pixel. A filled box of whole bytes (`VDB` with *x* and *w* multiples of 8 in mode 0 or of 2 in mode 1, *c* ≠ 2) is one block fill per row.
+
+### VDM
+
+```
+VDM mode, base, stride
+```
+
+Sets the drawing area for the following `VDL`, `VDR` and `VDB`: *mode* 0 (bitmap) or 1 (chunky), *base* the VRAM address of pixel (0, 0), 0–65535, *stride* the bytes per pixel row, 1–65535. The setting stays until the next `VDM`. After `SYS 7168` it is `VDM 0,0,80` (a 640-pixel bitmap at VRAM address 0).
+
+- *mode* other than 0 or 1, or *stride* 0: `?ILLEGAL QUANTITY ERROR`; the old setting stays.
+- *stride* is usually the row length of the screen (register 1, 80) or a multiple of it for a picture that leaves rows out.
+
+```
+VDM 0,0,80        : REM 640 x 200 bitmap at VRAM 0
+VDM 1,0,80        : REM chunky: 160 pixels per row, attributes at VRAM 0
+```
+
+### VDL
+
+```
+VDL x1, y1, x2, y2, c
+```
+
+Draws a line from (*x1*, *y1*) to (*x2*, *y2*), both end points included. All four coordinates 0–16383.
+
+- The pixels are those of Bresenham's algorithm: max(|*x2* − *x1*|, |*y2* − *y1*|) + 1 pixels, each touching the next at a side or a corner. When the line runs exactly between two pixels it stays on the row (or column) it is on. Swapping the end points gives the same pixels.
+- A line from a point to itself is one pixel.
+- Horizontal stretches of a line are written as spans (see above), so a flat line is much faster per pixel than a steep one.
+
+```
+VDL 0,0,639,199,1 : REM diagonal across the bitmap
+VDL 10,5,10,5,2   : REM invert one pixel
+```
+
+### VDR, VDB
+
+```
+VDR x, y, w, h, c
+VDB x, y, w, h, c
+```
+
+`VDR` draws the outline of a rectangle, `VDB` fills it. (*x*, *y*) is the top left pixel, *w* × *h* the outer size in pixels. Values 0–65535 with *x* + *w* ≤ 65536 and *y* + *h* ≤ 65536.
+
+- *w* = 0 or *h* = 0 draws nothing (no error).
+- `VDR` with *w* or *h* 1 or 2 has no inside: *h* = 1 is a horizontal line, *w* = 1 a vertical one. Otherwise it changes 2*w* + 2*h* − 4 pixels.
+
+```
+VDB 0,0,640,200,0      : REM clear a 640 x 200 bitmap
+VDM 1,0,80:VDB 10,20,70,96,4 : REM chunky box, colour 4
+VDR 5,5,20,10,2        : REM inverted frame, twice restores
+```
+
+### Errors of the drawing commands
+
+All parameters are read from left to right; the first error ends the command. Nothing is drawn when there is an error.
+
+| Case | Error |
+|---|---|
+| a parameter or comma missing, too many parameters | `?SYNTAX ERROR` |
+| a value below 0 or above 65535 (found while reading, so before a missing later parameter) | `?ILLEGAL QUANTITY ERROR` |
+| *mode* not 0/1, *stride* 0, *c* not allowed in the current mode, a `VDL` coordinate above 16383, *x* + *w* or *y* + *h* above 65536 | `?ILLEGAL QUANTITY ERROR` |
+| a string | `?TYPE MISMATCH ERROR` |
+
+Fractions are cut off, as everywhere in VDC-BASIC.
+
 ---
 
 ## Display control
@@ -405,9 +496,9 @@ For programs that add their own machine code.
 |---|---|
 | `$1300`–`$1BF6` | Code and variables (v2h) |
 | `$1C00`–`$1C0F` | (v3) Header: `$1C00` `JMP install`, `$1C03` version, `$1C04` threshold T of `RXV`, `$1C06`/`$1C07` and `$1C08`/`$1C09` results of `RXV`, rest reserved |
-| `$1C10`–`$3FFF` | (v3) Code and variables (currently up to `$2654`) |
+| `$1C10`–`$3FFF` | (v3) Code and variables (currently up to `$2DFE`), including the state of `VDM` (5 bytes) and a 64-byte buffer for inverted spans |
 | `$02FC`, `$030C`–`$0311` | BASIC vectors taken over (function call, tokenise, list, execute) |
-| `$0A`–`$0E`, `$26`–`$2A` | Work bytes of `VCL`, `VMS`, `VMP` |
+| `$0A`–`$14`, `$26`–`$2A` | Work bytes of `VCL`, `VMS`, `VMP`, `VDL`/`VDR`/`VDB` (v3) |
 | `$3F`/`$40`, `$77`/`$78` | List and target pointers |
-| `$83`–`$8E` | Parameters. BASIC uses these for its 40-column graphics commands. `RXV` uses `$83`–`$8B` (stream pointer, VRAM address, counters). |
+| `$83`–`$8E` | Parameters. BASIC uses these for its 40-column graphics commands. `RXV` uses `$83`–`$8B` (stream pointer, VRAM address, counters), the drawing commands `$83`–`$8E` (parameters, then work bytes). |
 | `$16`/`$17`, `$24`/`$25` | As BASIC uses them for `POKE` and strings |
