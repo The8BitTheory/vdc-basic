@@ -322,3 +322,63 @@ Daraus verbindlich (Modell `_args`, dann `_num`):
 - Alle Fälle in **einer** VICE-Sitzung (Haltepunkte `$1BFE`/`$1BFF`, ereignisgesteuert, Timeout nur als Wächter). Kein Neustart je Fall.
 - Vergleich über die vollen 64 KB bleibt Pflicht (findet Schreibzugriffe neben dem Ziel). `diff` dient nur der Fehlermeldung.
 
+
+## 12. Befunde aus der Umsetzung (6502)
+
+Stand 2026-11-25, Umsetzung `src/vdcbasic.asm` (Zone `draw`), Harness `test/draw/run_draw.py`. Ergebnis: alle 1 520 Fälle bytegleich mit dem Modell über 64 KB (interpretiert), `-c --quick` 1 010/1 010, `test/run.sh` beide Modi grün.
+
+### 12.1 Größe (Abweichung von 8 und 10)
+
+Die Zeilen unten stammen vor den Optimierungen; deren Netto-Effekt steht in der letzten Zeile.
+
+| Teil | Byte |
+|---|---|
+| `VDM` + Fehlerausgänge | 53 |
+| `VDL` (Unterscheidung, Tausch, Fehlerterm, Lauf-Ausgabe, schnelle Pfade dy = 0 / dx = 0) | 626 |
+| `VDR` | 182 |
+| `VDB` | 54 |
+| gemeinsam: Parameter, Prüfungen, `.setup`, x-Bereich, Spanne, `pix_rmw`, `run`/`xor_run`, Multiplikation, Masken | 938 |
+| Daten: Zustand `VDM` 5, Arbeitsbytes 38, `draw_buf` 64 | 107 |
+| Optimierungen 1–4 (netto), neue Daten `draw_vh`, `draw_majx`, `draw_xs` | +102 |
+| **Summe P2c** | **≈ 2 064** |
+
+Die Optimierungen im Einzelnen: (1) `pix_rmw` setzt Reg 18 nur bei geändertem High-Byte (`draw_vh`), nach dem Lesen nur Reg 19 zurück (nicht bei Low-Byte $FF); Reg 19 immer zuletzt: +58 Byte. (2) gemeinsame Pixelschleife `.ppx` für y-major, senkrechte Läufe (auch VDR-Spalten) und x-major mit 2dy ≥ dx; Ende von `pix_rmw` self-modifying (rts/clc), ersetzt `.yl` und `.vcol`: +74 Byte. (3) rechter Rand ohne Reg-18-Prüfung (`.pix_rmw_19`): ±0 Byte. (4) Wrap-Pfad über `.seek` und `x+w−1` / `y+h−1` als Unterprogramm `.last`: −30 Byte.
+
+Ziel ≤ 1 400 verfehlt; vdcbasic3.bin 4 711 Byte, Ende v3 ≈ $2E67, 4 505 Byte Reserve bis $3FFF (Assertion bleibt). Gründe: jede VDC-Warteschleife steht inline (`+vdc_sta`/`+vdc_lda`/`+vdc_sty`, 8 Byte, 14-mal), `pix_rmw` setzt die Adresse zweimal inline (2 × 29 Byte) statt per Unterprogramm, und es gibt eigene schnelle Pfade (Linie dy = 0 als eine Spanne, dx = 0 als senkrechter Lauf, Lauf innerhalb eines Bytes ohne Spannenrechnung). Kürzer ginge vor allem auf Kosten von `pix_rmw` (Seek als Unterprogramm: −60 Byte, +24 Zyklen je Pixel); das wurde nicht gemacht. Nur der Wrap-Pfad nutzt inzwischen ein `.seek`-Unterprogramm (Optimierung 4).
+
+### 12.2 Zyklen (Abweichung von 7)
+
+Werte aus `test/draw/cycles.md` (VICE, 1 MHz, R6 = 0, vorläufig; maßgeblich):
+
+| Pfad | Ziel | gemessen | Begründung |
+|---|---|---|---|
+| senkrechter Lauf je Pixel | ≤ 140 | 144 | `pix_rmw` (2 Seeks, Lesen, Schreiben) plus 16-Bit-Addition stride und Zähler; gemeinsame Pixelschleife (Optimierung 2) und Reg-18-Prüfung (1) brachten −25 (169 → 144), Ziel knapp verfehlt |
+| schräge Linie 45° je Pixel | ≤ 160 | 196 | je Pixel ein Lauf: `pix_rmw` + Lauf-Ende + Zeilenwechsel ±stride + x-Schritt + 16-Bit-Fehlerterm; Optimierungen brachten −119 (315 → 196). Ziel ohne größeren Umbau (eigene Zeilenschleife für VDB) nicht erreichbar |
+| Spanne mit zwei Rändern je Zeile (`VDB`), Bitmap | ≤ 330 | 375 | zwei `pix_rmw`, dazu Zeilenadresse, Rand-/Mittelteil-Entscheidung; −37 (412 → 375). Ziel ohne größeren Umbau (eigene Zeilenschleife für VDB) nicht erreichbar |
+| Spanne mit zwei Rändern je Zeile (`VDB`), chunky | ≤ 330 | 446 | wie Bitmap; −32 (478 → 446). Ziel ohne größeren Umbau nicht erreichbar |
+| Mittelteil unter T je Byte | 15 | 15 | wie geplant |
+| `VDB` volle Bytes je Zeile | ≤ 60 + Mittelteil | 386 bei m = 10 (CPU, davon 150 Mittelteil), 309,5 bei m = 70 (Block fill) | Seek, zwei 16-Bit-Additionen für Anfang/Ende der Zeile, Entscheidungen in `span_draw`, erstes Byte + Zählerregister beim Block fill |
+| `VDR 3,y,10,10,1` gesamt | — | 4 255 (vorher 4 537) | zehn Zeilen mit je zwei Rändern und Spanne |
+| flache Linie, Fehlerterm je Pixel | ≈ 15 (3.5) | 74 | 16-Bit-Fehlerterm, 16-Bit-Zähler und x-Schritt (Bitindex, Übertrag in die Adresse) je Pixel |
+
+Offen, ohne die Pixelmenge zu ändern: Run-Slicing mit Division (3.5) für flache Linien, `.xadv`/`.endrun` in die Schleife ziehen (45°). Für 45° und Spanne ist ohne größeren Umbau (eigene Zeilenschleife für VDB) kein Ziel erreichbar. Zahlen von echter Hardware stehen aus.
+
+### 12.3 Rechter Rand ohne Reg-18-Prüfung
+
+3.1 liest den rechten Rand an der nach dem Mittelteil aktuellen Adresse. Die Umsetzung setzt davor nur noch Reg 19 neu (`.pix_rmw_19`, ohne Prüfung von Reg 18; ±0 Byte). Hardware-Annahme: Schreiben allein von Reg 19 setzt die Adresse korrekt, wenn Reg 18 stimmt. VICE liest immer direkt an der Adresse und würde einen Fehler hier nicht zeigen; auf echter Hardware zu prüfen. Der linke Rand läuft wie in 3.1: nach dem Zurückschreiben steht die Adresse auf dem ersten Mittelbyte.
+
+### 12.4 Zeropage, Parameter, Messpunkte
+
+- `$0A`–`$14` erst nach dem Parsen: der Ausdrucksauswerter des ROM benutzt diesen Bereich (`$0D` VALTYP usw.); der Schleifenindex beim Lesen der fünf Parameter liegt daher im Datenteil (`draw_tmp`).
+- Zusätzlich zu 2: `$26`–`$2A` (Arbeitsbytes von `VCL`/`VMS`, während eines Zeichenbefehls frei) für `draw_d2`, `draw_d2m`, `draw_sp`, und `arg5` (`c`) nach der Prüfung als `draw_sa`. Steht in der Referenz unter „Memory used“.
+- Zu viele Parameter prüft der Befehl selbst (`chrgot` nach dem letzten Wert) vor dem ersten VRAM-Zugriff; BASIC würde den Syntaxfehler erst nach dem Zeichnen melden.
+- `draw_begin` (nach Parsen und Prüfen, vor der Geometrie) und `draw_end` sind globale Labels mit `RTS` für die Stoppuhr; jeder Zeichenbefehl ruft `draw_begin` einmal und endet mit `JMP draw_end` (12 bzw. 3 Zyklen).
+- Reg 24 Bit 7 wird nur beim ersten Mittelteil per Block fill gelöscht (`draw_r24`), wie 2 verlangt.
+
+### 12.5 Tests
+
+- `draw-errors.bas` ist auf 13 Dateien `draw-errors*.bas` verteilt (je Datei ein Fehler, Blitz!-Grenze wie bei `rxv-errors*.bas`). Die Prüfung „nichts gezeichnet“ liest das VRAM nach dem Fehler direkt über `$D600`/`$D601`, weil im Kompilat danach keine Erweiterung mehr arbeitet. „Fehlgeschlagenes `VDM` lässt den Zustand unverändert“ (11.2, 6.) ist aus demselben Grund nicht im Kompilat prüfbar; der Code speichert den Zustand erst nach allen Prüfungen.
+- `test/vramtest.py` (gemeinsame Teile mit `run_rxv.py`, 6.1) gibt es noch nicht; `run_draw.py` ist eigenständig nach dem Muster von `run_rxv.py` gebaut. Die Befehle stehen nicht als `DATA` im Treiber (1 520 Fälle passen nicht in den BASIC-Speicher), sondern werden je Fall in den Parameterblock `$1B00` geschrieben und per `PEEK` gelesen; T und R6 ebenso.
+- Laufzeit: voller Satz interpretiert ≈ 30 s, `-c --quick` ähnlich (statt 5–10 min nach 11.4): `bload`/`bsave` über den Monitor sind schnell.
+- Zeitmessgruppe C (`--cycles`, 27 Pfade × 8 × R6 0/25) ist nicht Teil von `gen_vectors`, wird aber ebenfalls gegen das Modell geprüft.
+- P2b-Review: `vcl-rxv-twice.bas` (zwei Typ-8-Einträge hintereinander, beide mit Block fill) und `vcl-rxv-vms.bas` (Typ 12, 8, 12, 8: Wechsel von Reg 24 Bit 7) ergänzt, beide Modi grün.
