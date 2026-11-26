@@ -3,27 +3,42 @@
 
 Prinzip (Begruendung in test/README.md, Abschnitt Z64K): Z64K hat keinen Monitor, der Haltepunkte setzt und den VRAM
 sichert. Darum liegt ein kleines 6502-Programm (test/z64k/zvt.s, bei $2F00) im Rechner, das die Aufgaben der
-beiden Haltepunkte $1BFE/$1BFF selbst erledigt: PREP laedt das Grundmuster ueber $D600/$D601 in den VRAM und
-schreibt Parameter und Strom des naechsten Vektors in den RAM, CHECK bildet die CRC-16 (CCITT) ueber alle 65536
-VRAM-Bytes und vergleicht sie mit dem in Python vorausberechneten Wert (dazu optional einzelne RAM-Bytes, z. B.
-$1C06/$1C08 bei RXV). Alle Vektoren eines Laufs stehen in einer Datei (Blob) in Bank 1 und werden mit einem
-einzigen Z64K-Start geprueft; das Ergebnis ist der Exitcode ($D7FF: 0 = alles gleich, 10 = Abweichung) und die
-Datei RES auf dem Diskimage (Nummern und Ist-CRC der abweichenden Vektoren). Bei Abweichungen laeuft ein
-zweiter, kurzer Start nur mit den ersten abweichenden Vektoren und schreibt deren VRAM als Dateien auf das
-Image (Diagnose: erste falsche Adresse, Anzahl falscher Bytes wie bei VICE).
+beiden Haltepunkte $1BFE/$1BFF selbst erledigt. Der VRAM wird nur einmal je Start ganz mit dem Grundmuster geladen.
+Jeder Fall hat eine kurze Liste von VRAM-Bereichen (hoechstens 16, aus der Menge der Bytes, die er laut Modell
+aendert, plus Rand; Python berechnet sie), und nur diese Bereiche werden angefasst:
+  PREP   Vorpruefung (CRC der Bereiche muss das Grundmuster sein, faengt Schreibzugriffe frueherer Faelle ab, die das
+         Wiederherstellen sonst loeschen wuerde), Parameter und Strom des naechsten Vektors in den RAM schreiben;
+  CHECK  CRC-16 (CCITT) ueber die Bereiche gegen den in Python vorausberechneten Wert (dazu optional einzelne
+         RAM-Bytes, z. B. $1C06/$1C08 bei RXV), danach die Bereiche wieder mit dem Grundmuster laden. An jedem
+         N-ten Vektor (Pruefpunkt) und am Ende dazu eine CRC ueber alle 64 KB (muss wieder das Grundmuster sein).
+Schreibzugriffe ausserhalb des Fallbereichs zeigen also die Vorpruefung eines spaeteren Falls oder der naechste
+Pruefpunkt. Dann wiederholt Python nur das Fenster seit dem letzten guten Pruefpunkt mit einer Gesamt-CRC nach
+jedem Vektor und benennt den schuldigen Vektor (mit VRAM-Dump). Alle Vektoren eines Laufs stehen in einer Datei
+(Blob) in Bank 1 und werden mit einem einzigen Z64K-Start geprueft; das Ergebnis ist der Exitcode ($D7FF: 0 = alles
+gleich, 10 = Abweichung) und die Datei RES auf dem Diskimage (Nummern, Flags und Ist-CRC der abweichenden Vektoren).
+Bei Abweichungen laeuft ein zweiter, kurzer Start nur mit den ersten abweichenden Vektoren und schreibt deren VRAM
+als Dateien auf das Image (Diagnose: erste falsche Adresse, Anzahl falscher Bytes wie bei VICE).
+Testhaken: ZVT_INJECT="wrong:NAME" (ein Byte im Fallbereich verfaelschen) oder "stray:NAME" (ein Byte ausserhalb
+verfaelschen), jeweils im CHECK des Vektors NAME; beides muss als FAIL gemeldet werden.
 """
-import binascii, collections, os, random, re, shutil, subprocess, sys, tempfile
+import binascii, collections, math, os, random, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import z64k  # noqa: E402
 
+BUILD = os.path.join(ROOT, 'build')      # Temporaeres liegt in build/, nicht in /tmp
+FULL_EVERY = 64                          # Gesamt-CRC alle N Vektoren (Pruefpunkt)
+MAXRANGES = 16
+
 ENTRY = {'init': 0x2F00, 'prep': 0x2F03, 'check': 0x2F06, 'fin': 0x2F09, 'finerr': 0x2F0C}
 RES_ADDR = 0x3A00
 EXIT_FAIL, EXIT_BASIC = 10, 2
 
-Rec = collections.namedtuple('Rec', 'name params src stream crc checks')   # checks: [(addr, value)]
+# ranges: [(start, ende einschliesslich)] des VRAM, den der Fall beschreiben darf (merge_ranges); checks: [(addr, value)]
+Rec = collections.namedtuple('Rec', 'name params src stream ranges checks')
+Item = collections.namedtuple('Item', 'name params src stream ranges checks crc precrc')
 Fail = collections.namedtuple('Fail', 'idx flags crc addr actual')
 
 
@@ -42,6 +57,41 @@ def pattern():
 
 def crc16(data):
     return binascii.crc_hqx(bytes(data), 0xFFFF)     # CCITT, MSB zuerst, Start $FFFF, wie zvt.s
+
+
+def tmpdir(prefix):
+    os.makedirs(BUILD, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=BUILD)
+
+
+def merge_ranges(runs, margin=32, gap=64, maxn=MAXRANGES):
+    """runs: [(start, ende einschliesslich)] -> verbreitert um margin, Naechste (Abstand <= gap) verschmolzen, dann die
+    mit dem kleinsten Abstand, bis hoechstens maxn uebrig sind."""
+    rs = sorted((max(0, a - margin), min(65535, b + margin)) for a, b in runs)
+    out = []
+    for a, b in rs:
+        if out and a <= out[-1][1] + gap + 1:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    while len(out) > maxn:
+        k = min(range(len(out) - 1), key=lambda i: out[i + 1][0] - out[i][1])
+        out[k:k + 2] = [(out[k][0], out[k + 1][1])]
+    return out
+
+
+def runs_from_extent(start, length):
+    """Bereich ab start mit length Bytes, Umlauf $FFFF -> $0000 als zwei Laeufe."""
+    if length <= 0:
+        return []
+    if length >= 65536:
+        return [(0, 65535)]
+    end = start + length - 1
+    return [(start, end)] if end < 65536 else [(start, 65535), (0, end - 65536)]
+
+
+def range_bytes(vram, ranges):
+    return b''.join(bytes(vram[a:b + 1]) for a, b in ranges)
 
 
 def crc_tables():
@@ -72,14 +122,19 @@ def assemble(work):
     return prg
 
 
-def make_blob(recs, pdst, flagad, diag=0, maxdiag=0):
+def make_blob(items, pdst, flagad, diag=0, maxdiag=0, fulls=(), fullcrc=0, inj=(0xFFFF, 0)):
+    """fulls: Positionen (Index in items) mit Gesamt-CRC nach dem Vektor; diag: Maske (1 = Dump bei Abweichung im
+    Bereich, 2 = bei Abweichung der Gesamt-CRC); inj: (Index, VRAM-Adresse) des Testhakens."""
     b = bytearray([0x00, 0x10])                       # Ladeadresse $1000 (Bank 1)
-    b += len(recs).to_bytes(2, 'little') + pdst.to_bytes(2, 'little') + flagad.to_bytes(2, 'little')
-    b += bytes([diag, maxdiag])
-    for r in recs:
+    b += len(items).to_bytes(2, 'little') + pdst.to_bytes(2, 'little') + flagad.to_bytes(2, 'little')
+    b += bytes([diag, maxdiag]) + fullcrc.to_bytes(2, 'little') + inj[0].to_bytes(2, 'little') + inj[1].to_bytes(2, 'little')
+    for i, r in enumerate(items):
         b += bytes([len(r.params)]) + bytes(r.params)
         b += len(r.stream).to_bytes(2, 'little') + r.src.to_bytes(2, 'little') + bytes(r.stream)
-        b += r.crc.to_bytes(2, 'little') + bytes([len(r.checks)])
+        b += r.crc.to_bytes(2, 'little') + r.precrc.to_bytes(2, 'little') + bytes([1 if i in fulls else 0, len(r.ranges)])
+        for x, y in r.ranges:
+            b += x.to_bytes(2, 'little') + y.to_bytes(2, 'little')
+        b += bytes([len(r.checks)])
         for a, v in r.checks:
             b += a.to_bytes(2, 'little') + bytes([v])
     if len(b) > 0xFF00 - 0x1000:
@@ -156,15 +211,14 @@ def build_disk(work, bin_, drv, blob, compile_):
 
 
 def read_file(image, name):
-    out = tempfile.mktemp(prefix='zvt-')
+    out = os.path.join(tmpdir('zvt-rd-'), 'f')
     try:
         r = subprocess.run(['c1541', '-attach', image, '-read', name, out], capture_output=True)
         if r.returncode or not os.path.exists(out):
             return None
         return open(out, 'rb').read()
     finally:
-        if os.path.exists(out):
-            os.remove(out)
+        shutil.rmtree(os.path.dirname(out), ignore_errors=True)
 
 
 def parse_res(data):
@@ -178,20 +232,58 @@ def parse_res(data):
     return nfail, ndone, berr, fails
 
 
+def estimate_cycles(items, nfull, ndiag):
+    """Grobe Obergrenze der emulierten Zyklen eines Starts (Waechter, keine Messung)."""
+    n = 4_000_000 + nfull * 3_500_000 + ndiag * 400_000_000
+    for r in items:
+        n += 600_000 + 160 * sum(b - a + 1 for a, b in r.ranges) + 40 * len(r.stream)
+    return n
+
+
+def inject_spec(items):
+    """ZVT_INJECT="wrong:NAME" oder "stray:NAME" -> (Index in items, VRAM-Adresse) oder None."""
+    spec = os.environ.get('ZVT_INJECT')
+    if not spec:
+        return None
+    kind, _, name = spec.partition(':')
+    for i, r in enumerate(items):
+        if r.name == name:
+            if kind == 'wrong':
+                if not r.ranges:
+                    sys.exit(f'ZVT_INJECT: {name} hat keinen Bereich')
+                return i, r.ranges[0][0]
+            if kind == 'stray':
+                for a in (0xFF00, 0xF7F0, 0x7000, 0x3C00, 0x1230, 0xC0DE):
+                    if all(not (x - 512 <= a <= y + 512) for x, y in r.ranges):
+                        return i, a
+            sys.exit(f'ZVT_INJECT: unbekannte Art {kind!r} (wrong|stray)')
+    return None
+
+
 Outcome = collections.namedtuple('Outcome', 'rc secs nfail ndone berr fails image work')
 
 
-def session(recs, drv_text, pdst, flagad, bin_, compile_, timeout, diag=0, keep_work=False, label=''):
-    """Ein Z64K-Start fuer alle Vektoren. Liefert Outcome (image/work nur mit keep_work, sonst geloescht)."""
-    work = tempfile.mkdtemp(prefix='zvt-')
+def session(items, drv_text, pdst, flagad, bin_, compile_, timeout, fullcrc, fulls, diag=0, diagmask=1,
+            keep_work=False):
+    """Ein Z64K-Start fuer alle Vektoren (items). fulls: Positionen mit Gesamt-CRC. Liefert Outcome (image/work nur
+    mit keep_work, sonst geloescht). Wiederholt einmal bei rc 125 (Absturz des Java-Starters bei parallelen Starts)
+    oder rc 124 (Waechter-Timeout, z. B. Start blieb vor der Emulation stehen)."""
+    work = tmpdir('zvt-')
     ok = False
     try:
-        blob = make_blob(recs, pdst, flagad, 1 if diag else 0, diag)
+        inj = inject_spec(items) or (0xFFFF, 0)
+        blob = make_blob(items, pdst, flagad, diagmask if diag else 0, diag, fulls, fullcrc, inj)
         d64, boot = build_disk(work, bin_, driver(drv_text), blob, compile_)
-        # Wacheter: -limitcycles grosszuegig (rund 5 Mio. Zyklen je Vektor), Gesamt-Timeout in Sekunden
-        limit = 200_000_000 + len(recs) * 12_000_000 + (diag * 400_000_000)
+        # Waechter: -limitcycles gegen Endlosschleifen im 6502, Wallclock-Timeout gegen haengenden Java-Starter
+        limit = estimate_cycles(items, len(fulls), diag) * 2 + 100_000_000
+        guard = min(timeout, 120 + limit // 1_000_000)
         saved = os.path.join(work, 'saved.d64')
-        r = z64k.run(boot, d64, limit=limit, timeout=timeout, save=saved, log=os.path.join(work, 'z64k.log'))
+        for attempt in (1, 2):
+            r = z64k.run(boot, d64, limit=limit, timeout=guard, save=saved, log=os.path.join(work, 'z64k.log'))
+            if r.rc in (z64k.EXIT_MISSING, z64k.EXIT_TIMEOUT) and attempt == 1 and z64k.available() is None:
+                print(f'Z64K-Start rc {r.rc}, einmalige Wiederholung', flush=True)
+                continue
+            break
         nfail = ndone = berr = None
         fails = []
         if r.image:
@@ -221,24 +313,34 @@ def first_diff(a, b):
     return None
 
 
-def verify(recs, exp_vram, drv_text, pdst, flagad, bin_, compile_, timeout, diag=3, jobs=None):
+def verify(recs, exp_vram, drv_text, pdst, flagad, bin_, compile_, timeout, diag=3, jobs=None, full_every=None):
     """Alle Vektoren pruefen, bei Abweichungen die ersten `diag` per VRAM-Dump erklaeren.
 
-    recs[0] ist der Selbsttest (Grundmuster, keine Befehle). Die uebrigen Vektoren werden auf `jobs` parallele
-    Z64K-Starts verteilt (je ein eigenes Xvfb, je ein Selbsttest vorweg); jobs=None: min(3, Kerne - 1).
-    exp_vram(i) -> erwarteter VRAM von recs[i]. Rueckgabe: (anzahl_ok ohne Selbsttest, abweichende Namen,
-    Fehlertexte, letzter Outcome)."""
+    recs[0] ist der Selbsttest (Grundmuster, keine Befehle, ohne Bereiche). Die uebrigen Vektoren werden auf `jobs`
+    parallele Z64K-Starts verteilt (je ein eigenes Xvfb, je ein Selbsttest vorweg); jobs=None: min(3, Kerne - 1).
+    exp_vram(i) -> erwarteter VRAM von recs[i] (nur in recs[i].ranges muss er stimmen). Rueckgabe: (anzahl_ok ohne
+    Selbsttest, abweichende Namen, Fehlertexte, letzter Outcome)."""
     import concurrent.futures
+    full_every = full_every or FULL_EVERY
     jobs = jobs or max(1, min(3, (os.cpu_count() or 2) - 1))
-    body = list(range(1, len(recs)))
+    base = pattern()
+    fullcrc = crc16(base)
+    items = []
+    for i, r in enumerate(recs):
+        exp = exp_vram(i)
+        items.append(Item(*r, crc16(range_bytes(exp, r.ranges)), crc16(range_bytes(base, r.ranges))))
+    body = list(range(1, len(items)))
     jobs = max(1, min(jobs, len(body) // 20 or 1))
     chunks = [body[k::jobs] for k in range(jobs)]          # verteilt: Gruppen gleichmaessig auf alle Starts
-    errors, fails_g = [], []                               # fails_g: (globaler Index, Fail)
+    errors, fails_g, strays = [], [], []                   # fails_g: (globaler Index, Fail); strays: (sub, Position, Fail)
     secs, rcs, ndone_total = [], [], 0
 
+    def checkpoints(n):
+        return {p for p in range(n) if p % full_every == 0} | {n - 1}
+
     def one(ch):
-        sub = [recs[0]] + [recs[i] for i in ch]
-        return ch, session(sub, drv_text, pdst, flagad, bin_, compile_, timeout)
+        sub = [items[0]] + [items[i] for i in ch]
+        return ch, session(sub, drv_text, pdst, flagad, bin_, compile_, timeout, fullcrc, checkpoints(len(sub)))
 
     with concurrent.futures.ThreadPoolExecutor(jobs) as ex:
         results = list(ex.map(one, chunks))
@@ -248,9 +350,9 @@ def verify(recs, exp_vram, drv_text, pdst, flagad, bin_, compile_, timeout, diag
         rcs.append(out.rc)
         tag = f' (Start {chunks.index(ch) + 1})' if jobs > 1 else ''
         if out.rc == z64k.EXIT_MISSING:
-            sys.exit('Z64K nicht verfuegbar')
+            sys.exit('Z64K nicht verfuegbar oder Java-Starter abgestuerzt (rc 125, auch nach Wiederholung)')
         if out.rc == z64k.EXIT_TIMEOUT:
-            errors.append(f'Waechter-Timeout ({timeout} s){tag}')
+            errors.append(f'Waechter-Timeout{tag}')
         elif out.rc == 1:
             errors.append(f'-limitcycles erreicht (Waechter){tag}')
         elif out.rc == EXIT_BASIC:
@@ -269,8 +371,11 @@ def verify(recs, exp_vram, drv_text, pdst, flagad, bin_, compile_, timeout, diag
         for f in out.fails:
             if f.idx == 0:
                 errors.append(f'Selbsttest (Grundmuster ohne Befehle) weicht ab{tag}: Harness oder VDC-Schreib/Lese-Pfad')
-            else:
+                continue
+            if f.flags & 3:
                 fails_g.append((sub[f.idx], f))
+            if f.flags & 12:
+                strays.append((sub, f.idx, f))
         if out.nfail > len(out.fails):
             errors.append(f'{out.nfail - len(out.fails)} weitere Abweichungen nicht aufgelistet{tag}')
     fails_g.sort(key=lambda t: t[0])
@@ -279,8 +384,9 @@ def verify(recs, exp_vram, drv_text, pdst, flagad, bin_, compile_, timeout, diag
     dumps = {}
     sel = fails_g[:diag] if diag else []
     if sel:
-        sub = [recs[g] for g, _ in sel]
-        o2 = session(sub, drv_text, pdst, flagad, bin_, False, timeout, diag=len(sub), keep_work=True)
+        sub = [items[g] for g, _ in sel]
+        o2 = session(sub, drv_text, pdst, flagad, bin_, False, timeout, fullcrc, {len(sub) - 1}, diag=len(sub),
+                     diagmask=1, keep_work=True)
         try:
             if o2.image:
                 for k, (g, _) in enumerate(sel):
@@ -291,7 +397,7 @@ def verify(recs, exp_vram, drv_text, pdst, flagad, bin_, compile_, timeout, diag
     for g, f in fails_g:
         r = recs[g]
         bad.append(r.name)
-        line = f'FAIL  {r.name}  CRC ist ${f.crc:04X}, soll ${r.crc:04X}'
+        line = f'FAIL  {r.name}  CRC ist ${f.crc:04X}, soll ${items[g].crc:04X}'
         msg = []
         if f.flags & 2:
             msg.append(f'RAM ${f.addr:04X} ist ${f.actual:02X}')
@@ -307,4 +413,40 @@ def verify(recs, exp_vram, drv_text, pdst, flagad, bin_, compile_, timeout, diag
         elif f.flags & 1 and g in dumps:
             msg.append('VRAM-Dump des Diagnoselaufs fehlt')
         print(line + ('\n      ' + '; '.join(msg) if msg else ''), flush=True)
-    return ndone_total - len(fails_g), bad, errors, results[-1][1]
+    # Schreibzugriffe ausserhalb der Fallbereiche: je Start nur das erste Auftreten eingrenzen
+    seen = set()
+    for sub, k, f in sorted(strays, key=lambda t: (t[0][1:2], t[1])):
+        if tuple(sub) in seen:
+            continue
+        seen.add(tuple(sub))
+        cps = sorted(checkpoints(len(sub)))
+        c = max(p for p in cps if p < k)
+        window = list(range(c + 1, k + 1)) if f.flags & 4 else list(range(c + 1, k))
+        what = 'Gesamt-CRC' if f.flags & 4 else 'Vorpruefung'
+        names = [recs[sub[p]].name for p in window]
+        if not window:
+            errors.append(f'Schreibzugriff ausserhalb der Fallbereiche ({what} bei Vektor {recs[sub[k]].name}) '
+                          f'nicht eingegrenzt')
+            continue
+        wi = [items[0]] + [items[sub[p]] for p in window]
+        o3 = session(wi, drv_text, pdst, flagad, bin_, False, timeout, fullcrc, set(range(len(wi))), diag=1,
+                     diagmask=2, keep_work=True)
+        try:
+            hit = [e for e in o3.fails if e.idx > 0 and e.flags & 4]
+            if not hit:
+                errors.append(f'Schreibzugriff ausserhalb der Fallbereiche ({what} bei Vektor {recs[sub[k]].name}) '
+                              f'im Fenster {names[0]} .. {names[-1]} nicht reproduzierbar')
+                continue
+            g = sub[window[hit[0].idx - 1]]
+            bad.append(recs[g].name)
+            msg = f'FAIL  {recs[g].name}  schreibt ausserhalb seines Bereichs (erkannt durch {what} bei {recs[sub[k]].name})'
+            got = read_dump(o3.image, hit[0].idx) if o3.image else None
+            if got:
+                a = first_diff(got, base)
+                if a is not None:
+                    n = sum(1 for q in range(65536) if got[q] != base[q])
+                    msg += f'\n      VRAM ${a:04X}: ist ${got[a]:02X}, soll ${base[a]:02X} ({n} Byte falsch)'
+            print(msg, flush=True)
+        finally:
+            shutil.rmtree(o3.work, ignore_errors=True)
+    return ndone_total - len(set(bad)), bad, errors, results[-1][1]

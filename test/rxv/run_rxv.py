@@ -375,7 +375,9 @@ def run_z64k(vecs, args):
         exp, e_end, e_vram = exp_of(v)
         params = bytes([v.src & 255, v.src >> 8, v.dst & 255, v.dst >> 8, v.T, 0, v.r6])
         checks = [(0x1C06, e_end & 255), (0x1C07, e_end >> 8), (0x1C08, e_vram & 255), (0x1C09, e_vram >> 8)]
-        recs.append(zvt.Rec(v.name, params, v.src, v.stream, zvt.crc16(exp), checks))
+        # Bereich: dst .. dst + U - 1 (Umlauf moeglich), U = Summe der Token-Laengen; selftest schreibt nichts
+        u = 0 if v is selftest else sum(t.length for t in vrl.decode_tokens(v.stream))
+        recs.append(zvt.Rec(v.name, params, v.src, v.stream, zvt.merge_ranges(zvt.runs_from_extent(v.dst, u)), checks))
     allv = [selftest] + vecs
     print(f'{len(vecs)} Vektoren (+ Selbsttest), Ströme ${min(v.src for v in vecs):04X}-'
           f'${max(v.src + len(v.stream) for v in vecs) - 1:04X}', flush=True)

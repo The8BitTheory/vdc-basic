@@ -270,21 +270,21 @@ def run(cs, args):
 
 def run_z64k(cs, args):
     """Z64K statt VICE: ohne Monitor. Grundmuster (zvt.pattern), Vergleich (CRC-16 ueber 64 KB) und Parameter-
-    Ladung macht zvt.s (test/zvt.py); ein Start fuer alle Faelle. Die Faelle wurden schon gegen dieses Grundmuster
+    Ladung macht zvt.s (test/zvt.py); ein Start fuer alle Faelle; je Fall werden nur die vom Modell
+    geaenderten Bereiche (mit Rand) wiederhergestellt und per CRC geprueft, der ganze VRAM nur an Pruefpunkten. Die Faelle wurden schon gegen dieses Grundmuster
     berechnet (cases() mit ersetztem gen_vectors.base_pattern); Zeitgruppe C gibt es nur mit VICE."""
     cs = [c for c in cs if c['group'] != 'C']
     base = zvt.pattern()
     selftest = dict(name='selftest', group='-', T=14, cmds=[], r6=25, sha1='', diff=[])
     allc = [selftest] + cs
-    exps = {}
 
-    def exp_of(i):
-        if i not in exps:
-            exps[i] = expected(allc[i], base)
-        return exps[i]
+    def exp_of(i):                          # nicht zwischenspeichern: 1500 mal 64 KB
+        return expected(allc[i], base)
 
-    recs = [zvt.Rec(c['name'], bytes(param_block(c)[2:]), 0, b'', zvt.crc16(exp_of(i)), [])
-            for i, c in enumerate(allc)]
+    def ranges_of(c):                       # Bereich = geaenderte Laeufe laut Modell, mit Rand
+        return zvt.merge_ranges([(a, a + len(hx) // 2 - 1) for a, hx in c['diff']])
+
+    recs = [zvt.Rec(c['name'], bytes(param_block(c)[2:]), 0, b'', ranges_of(c), []) for c in allc]
     ok, bad, errors, out = zvt.verify(recs, exp_of, DRIVER.format(fast=''), PARAM + 2, PARAM,
                                       args.bin, args.compile, args.timeout, diag=0 if args.no_diag else 3, jobs=args.jobs)
     return ok, bad, errors, out, len(cs)

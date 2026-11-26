@@ -303,6 +303,8 @@ Strom in Hex ohne Dateikopf; „v“ = fester Wert je Vektor (z. B. `$A5`). Das 
 | `test/vdc-reg30-zero.bas` | Reg 30 = 0 füllt 256 Byte: `RGA 24,127`, Adresse setzen, `RGW 31,v`, `RGW 30,0`; `VMD(a+256)` = v, `VMD(a+257)` unverändert |
 | `test/rxv-hw.bas` | die Vektoren `fill-skip`, `lit-skip`, `lrun257`, `lrun65536` (mit Rücksicherung des Bildschirms) und `rand-0…4`, Sollwerte als Prüfsumme (16 Bit, vom Harness erzeugt) im Listing |
 
+Z64K-Fassung (`run_rxv.py --emu z64k`, 6502-Prüfprogramm `test/z64k/zvt.s`, Beschreibung in `test/README.md`): Je Vektor werden nur der Bereich `dst .. dst + U - 1` (mit Rand, Umlauf) per CRC geprüft und danach wiederhergestellt; Schreibzugriffe außerhalb fängt die Vorprüfung des nächsten Falls und eine CRC über alle 64 KB an jedem 64. Vektor (Eingrenzung des schuldigen Vektors per Wiederholung des Fensters). 238 Vektoren: 5 min → 1 min 18 s, grün. Der Vergleich über 64 KB je Vektor bleibt in der VICE-Fassung.
+
 ## 8. Doku
 
 | Datei | Änderung |
