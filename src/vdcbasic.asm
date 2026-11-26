@@ -48,6 +48,8 @@
 ;               vdm, vdl, vdr, vdb: drawing in bitmap (1 bpp) and chunky (4 bpp), tokens $fe42, $fe3e-$fe40 (P2c)
 ;               vcl: command 9 = vms with the list in bank 1 (16 KB common RAM during the entry, P2d)
 ;               vcl: command 10 = continue the list at an address in bank 0 (3 bytes, P2e)
+;               vmc, vmf: row loop without JSR, R18/R19/R30 (R31, R32/R33) written directly, source
+;               increment checked once per call; same results, 20-30 % fewer cycles per row (P2f)
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v3 installed"}
@@ -530,17 +532,10 @@ complex_instruction_block_entry
     ; remember memory configuration for shared exit
 remember_mem_conf
     ldx $ff00
-    stx .cr
+    stx saved_mem_conf      ; operand of the LDA in complex_instruction_shared_exit (behind the VMC/VMF row loop, P2f)
     ldx #$3e  ; full RAM with I/O
     stx $ff00
     rts; > AAYY = arg3
-
-complex_instruction_shared_exit ; restore memory configuration
-.cr = * + 1:  lda #MODIFIED8
-    sta $ff00
-    rts
-saved_mem_conf = .cr    ; global name, for code in other zones
-    +vdclib_assert_below_basic_rom  ; reached from rtv and vtr with BASIC ROM banked in
 
 !zone fill_and_copy
 
@@ -560,38 +555,27 @@ vmf_execute
     jsr vdc_reg_X_to_A
     and #$7f
     jsr A_to_vdc_reg_X
-    
-    ; write first byte
--   lda arg2
-    ;set target
-    ldy arg1
-    ldx arg1 + 1
-    jsr A_to_vram_XXYY
-    ;set count
-    lda arg3
-    ldy arg3 + 1
-    jsr vdc_do_YYAA_cycles
-    
-    dec arg4
-    beq +
-    
-    clc
-    lda arg1
-    adc arg5
-    sta arg1
 
-    lda arg1+1
-    adc arg5+1
-    sta arg1+1
-
-    jmp -
-    
-+   jmp complex_instruction_shared_exit
+    ; row loop of VMC with a fill step (P2f): target in arg2, value in arg1 during the loop
+    jsr .vmf_swap
+    clc                     ; no source registers
+    ldx #<.vmc_dst_step     ; never a source step
+    lda #$2c                ; BIT abs: fill step after the target
+    jsr .vmc_go             ; returns through complex_instruction_shared_exit
+.vmf_swap                   ; exchange arg1 and arg2 (afterwards target and value are where VMF always had them)
+    ldx #1
+-   lda arg1, x
+    ldy arg2, x
+    sta arg2, x
+    sty arg1, x
+    dex
+    bpl -
+    rts
 
 ; this is parsing VMC parameters from basic
 vmc ; copy VRAM to VRAM
     jsr complex_instruction_block_entry ; > AAYY = arg3
-    
+
 ; this can be used with pre-filled parameters, eg via VMP or VCL or VMS
 vmc_execute
     ; set register bit for BLOCK COPY:
@@ -599,64 +583,89 @@ vmc_execute
     jsr vdc_reg_X_to_A
     ora #128
     jsr A_to_vdc_reg_X
-
-    ; set source
-block_copy_source
-    ldy arg1
-    lda arg1 + 1
-    ldx #32
-    jsr AY_to_vdc_regs_Xp1
-
-    ; set target
-block_copy_target
-    ldy arg2
-    lda arg2 + 1
-    jsr AY_to_vdc_regs_18_19
-
-    ; set count
-    lda arg3
-    ldy arg3 + 1
-    jsr vdc_do_YYAA_cycles
-    
-    ; set nr repeats
-    dec arg4
-    beq .vmc_done
-
-    ; increase target address
+    sec                     ; set the source first
+    !byte $24               ; BIT zp: skips the CLC
+block_copy_target           ; entry from VMS: source registers already set, only the target
     clc
-    lda arg2
-    adc arg5
-    sta arg2
-
-    lda arg2+1
-    adc arg5+1
-    sta arg2+1    
-
-    ; should source address be increased?
-    ; check HB
-    lda arg6+1
-    cmp #0
-    bne +       ; yes. jump to increasing source address
-
-    ; check LB (only when HB equals zero)
+    ; should the source address be increased per row? decided once (P2f)
+    ldx #<.vmc_dst_step
     lda arg6
-    cmp #0
-    beq block_copy_target       ; LB not zero. jump to updating target address register (ie leave source address register alone)
+    ora arg6 + 1
+    beq +
+    ldx #<.vmc_src_step
++   lda #$4c                ; JMP: no fill step
+.vmc_go ; A = opcode at .vmc_fill_sw, X = low byte of the loop target, C = 1: set the source first
+    sta .vmc_fill_sw
+    stx .vmc_loop + 1
+    bcs .vmc_src_set
+    bcc .vmc_dst_step
 
-    ; increase source address
-+   clc
+; row loop without JSR (P2f). VDC register numbers go to $d600 directly, each
+; access to $d601 waits for the ready bit. The VDC moves the source on by itself,
+; so R32/R33 are only written again if the source increment (arg6) is not 0.
+; The next addresses are computed after R30, while the VDC copies or fills
+; (faster in Z64K than computing them between R19 and R30, see docs/v3/P2f-vmc-loop.md).
+.vmc_src_step               ; next row with source increment: arg1 += arg6
+    clc
     lda arg1
     adc arg6
     sta arg1
+    lda arg1 + 1
+    adc arg6 + 1
+    sta arg1 + 1
+.vmc_src_set                ; R32/R33 = arg1
+    ldx #32
+    stx vdc_reg
+    lda arg1 + 1
+    +vdc_sta
+    inx
+    stx vdc_reg
+    lda arg1
+    +vdc_sta
+.vmc_dst_step               ; R18/R19 = arg2
+    ldx #18
+    stx vdc_reg
+    lda arg2 + 1
+    +vdc_sta
+    inx
+    stx vdc_reg
+    lda arg2
+    +vdc_sta
+.vmc_fill_sw
+    jmp .vmc_count          ; self-modified: $2c (BIT abs) for VMF, falls into the fill step
+    ldx #31                 ; VMF: R31 = value (first byte of the row)
+    stx vdc_reg
+    lda arg1
+    +vdc_sta
+.vmc_count
+    ldx #30                 ; R30 = count, as in vdc_do_YYAA_cycles: low byte (if not 0),
+    stx vdc_reg             ; then 0 (= 256) high byte times
+    lda arg3
+    beq +
+    +vdc_sta
++   ldy arg3 + 1
+    beq .vmc_counted
+    jsr vdc_do_YY_pages     ; count >= 256
+.vmc_counted
+    dec arg4                ; nr of rows (0 = 256)
+    beq complex_instruction_shared_exit
+    clc                     ; next target: arg2 += arg5
+    lda arg2
+    adc arg5
+    sta arg2
+    lda arg2 + 1
+    adc arg5 + 1
+    sta arg2 + 1
+.vmc_loop
+    jmp .vmc_dst_step       ; self-modified low byte: .vmc_src_step if arg6 <> 0
+!if >.vmc_src_step != >.vmc_dst_step { !error "P2f: .vmc_src_step and .vmc_dst_step must lie in the same page" }
 
-    lda arg1+1
-    adc arg6+1
-    sta arg1+1
-    jmp block_copy_source      ; jump to updating source address register
-
-.vmc_done
-
-    jmp complex_instruction_shared_exit
+complex_instruction_shared_exit ; restore memory configuration
+.cr = * + 1:  lda #MODIFIED8
+    sta $ff00
+    rts
+saved_mem_conf = .cr    ; global name, for code in other zones
+    +vdclib_assert_below_basic_rom  ; reached from rtv and vtr with BASIC ROM banked in
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Video Memory Sprite-Copy. Like VMC with a mix of VCL.

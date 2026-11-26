@@ -128,6 +128,7 @@ vdc_data_to_A ; read currently selected VDC register to A
 +		tya	; check high byte
 		beq +
 			; copy/write whole pages
+vdc_do_YY_pages	; Y (not 0) times 256 bytes, R30 must be selected
 			lda #0
 -				+vdc_sta
 				dey
