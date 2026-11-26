@@ -17,7 +17,7 @@ The pixel at column *x*, line *y* is in the byte at *y* × 80 + INT(*x* / 8), co
 <!-- listing: 04-bitmap.bas -->
 ```
 10 REM A CANVAS: 640 X 200 PIXELS, TWO COLOURS. RUNS WITH 16 KIB.
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 FOR I=0 TO 7:READ B(I):NEXT:DATA 128,64,32,16,8,4,2,1
 40 RGA 25,191:REM ATTRIBUTES OFF: ONE PAIR OF COLOURS FOR THE WHOLE SCREEN
 50 RGO 25,128:REM BITMAP MODE ON
@@ -47,6 +47,49 @@ Lines 110 to 140 plot single pixels, 320 of them, along a sine curve. Line 130 i
 You can watch the curve crawl across the screen. This is the speed of drawing pixel by pixel in BASIC, and it is the reason this book goes a different way. Still, it is good to know how, and for a diagram that is drawn once it is fast enough.
 
 Lines 150 and 160 wait for a key and clean up. `RST 3` is not optional here, as we are about to see.
+
+## Lines, frames and boxes
+
+Plotting with `VMO` is fine for a curve, but VDC-BASIC has commands that do the plotting for you. Since v3 there are four of them, and they all work on a picture in VRAM, not on what the VDC happens to display:
+
+| Command | Does |
+|---|---|
+| `VDM mode, base, stride` | says where the picture is and how its pixels are stored |
+| `VDL x1, y1, x2, y2, c` | a line from point 1 to point 2 |
+| `VDR x, y, w, h, c` | the outline of a rectangle, *w* pixels wide and *h* high |
+| `VDB x, y, w, h, c` | a filled rectangle (a box) |
+
+`VDM` comes first. *Mode* 0 is the bitmap we have here: one bit per pixel, eight per byte, exactly as described at the top of this chapter. *Base* is the VRAM address of the pixel in the top left corner, and *stride* is the number of bytes from one pixel row to the next, 80 for the screen. After installation the setting is `VDM 0,0,80`, which is our canvas; the listing says it anyway.
+
+The colour *c* is 0 to clear pixels, 1 to set them, and 2 to invert them.
+
+<!-- listing: 04-draw.bas -->
+```
+10 REM A CANVAS: LINES, FRAMES AND BOXES. RUNS WITH 16 KIB.
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
+30 RGA 25,191:RGO 25,128:DISP 0:REM BITMAP MODE, NO ATTRIBUTES
+40 VMF 0,0,16000:RGW 26,DEC("D2"):REM CLEAR; YELLOW ON DARK BLUE
+50 VDM 0,0,80:REM 1 BIT PER PIXEL, PIXEL (0,0) AT VRAM 0, 80 BYTES PER ROW
+60 VDR 0,0,640,200,1:REM A FRAME AROUND THE SCREEN
+70 FOR X=0 TO 639 STEP 40:VDL 320,198,X,1,1:NEXT:REM A FAN OF LINES
+80 VDB 40,40,120,60,1:REM A FILLED BOX ...
+90 VDB 60,50,80,40,2:REM ... WITH A HOLE: COLOUR 2 INVERTS
+100 VDB 480,40,120,60,1:VDR 470,30,140,80,1
+110 VDR 480,40,120,60,2:REM TWICE THE SAME FIGURE IN COLOUR 2 ...
+120 VDR 480,40,120,60,2:REM ... LEAVES NOTHING BEHIND
+130 GETKEY K$
+140 RST 3:PRINT CHR$(147)
+```
+
+![Lines, a frame, boxes: drawn by the chip's helper](img/04-draw.png)
+
+Line 60 draws a frame around the whole screen. Line 70 is a fan of lines from the bottom middle to the top edge. Lines 80 and 90 draw a box and then a second, smaller box in colour 2 inside it: where the pixels were set they are now cleared, so the second box is a hole.
+
+Lines 100 to 120 show why colour 2 is useful. Line 100 draws a box with a frame around it. Then the outline of the box is drawn in colour 2, and once more in line 120. After the first time the edge of the box is inverted; after the second it is exactly as it was. Every pixel of a figure is changed exactly once, so drawing the same figure twice in colour 2 restores the picture. That is the cheapest way to draw something that moves over a picture without destroying it.
+
+The pixels of a line are those of Bresenham's algorithm. The commands run in machine code and are much faster than the loop with `VMO`, in particular for flat lines and boxes: pixels in one row are written as a span, and the whole bytes in the middle of a span by the VDC's block fill. Details are in the [command reference](reference/commands.md#drawing).
+
+Nothing is clipped. A line that leaves the picture continues in whatever lies behind it. Keep your figures inside.
 
 ## Where did the colours come from?
 
@@ -97,7 +140,7 @@ In bitmap mode an attribute has a different meaning than in text mode. There is 
 <!-- listing: 04-colour.bas -->
 ```
 10 REM A CANVAS WITH COLOUR CELLS. NEEDS 64 KIB VRAM.
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 IF RGD(255)=0 THEN PRINT "THIS PROGRAM NEEDS 64 KIB VRAM":END
 40 FOR I=0 TO 7:READ B(I):NEXT:DATA 128,64,32,16,8,4,2,1
 50 RGO 28,16:REM USE ALL 64 KIB
@@ -139,5 +182,7 @@ The second is an opportunity. A picture in this mode has two layers, shape and c
 | `DISP vaddr` | where the displayed characters or the bitmap begin |
 | `ATTR vaddr` | where the displayed attributes begin |
 | `RST 3` | back to the normal text screen; follow it with `PRINT CHR$(147)` |
+| `VDM mode, base, stride` | where a picture is and how its pixels are stored (v3) |
+| `VDL`, `VDR`, `VDB` | line, rectangle outline, filled box (v3) |
 
 [Next: Sixteen colours per pixel](05-sixteen-colours.md)

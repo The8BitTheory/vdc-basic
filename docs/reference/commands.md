@@ -1,6 +1,6 @@
 # Command reference
 
-VDC-BASIC v2h: 23 instructions and 2 functions (v3: 28), grouped by what they work on. Parts marked **(v3)** need VDC-BASIC v3 (`vdcbasic3.bin` at `$1C00`, see the [README](../../README.md)): `RXV`, `VDM`, `VDL`, `VDR`, `VDB`, `VCL` entry types 8, 9 and 10 and `VMS` entry type 3.
+VDC-BASIC v3: 28 instructions and 2 functions, grouped by what they work on. Parts marked **(v3)** are new since v2h (23 instructions and 2 functions): `RXV`, `VDM`, `VDL`, `VDR`, `VDB`, `VCL` entry types 8, 9 and 10, `VMS` entry type 3, and the faster row loop of `VMC`, `VMF` and `VMS` (same results, 20-30 % fewer cycles per row).
 
 Everything stated here was either checked by a listing in `test/` or read directly from `src/vdcbasic.asm`.
 
@@ -36,10 +36,14 @@ Do this before you put anything into VRAM. The switch changes how the chip addre
 ## Loading
 
 ```
-BLOAD "VDCBASIC2H",B0 : SYS DEC("1300")
+RUN "BOOT"
 ```
 
-The extension occupies `$1300`–`$1BF6` and prints `VDC BASIC V2H INSTALLED`. It stays active until reset. After installation the new keywords are recognised when a line is entered, so they can no longer be part of a variable name (`ATTRIB`, `DISPLAY`, `SYNC` will not work).
+The boot loader `boot/boot.bas` (on disk as `BOOT`, first file on the disk) runs twice. The first pass sets the start of BASIC text (`$2D/$2E`) to `$4001` and loads itself there with `RUN"BOOT"`; the second pass loads `VDCBASIC3` to `$1C00` (`BLOAD"VDCBASIC3",B0,U8`), installs it with `SYS 7168`, checks the version byte at `$1C03` and ends with `NEW`. Replace its last line with `50 RUN"PROGRAM"` to start a program afterwards. A program can check that this has happened: `IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END`.
+
+The extension occupies `$1C00`–`$2EE9` (4842 bytes; everything up to `$3FFF` is reserved), BASIC programs start at `$4001`, and the installation prints `VDC BASIC V3 INSTALLED`. It stays active until reset. After installation the new keywords are recognised when a line is entered, so they can no longer be part of a variable name (`ATTRIB`, `DISPLAY`, `SYNC` will not work).
+
+**`GRAPHIC 1` to `GRAPHIC 4` must not be used**: the VIC bitmap (`$2000`–`$3FFF`) and its colour memory (`$1C00`–`$1FFF`) overwrite VDC-BASIC. `GRAPHIC 0` and `GRAPHIC 5` are fine, `GRAPHIC CLR` is not. `tools/mkboot.py` writes a C128 boot sector that runs `BOOT` at power-on. Programs compiled with Blitz! must use runtime image 2 (load address `$4001`); see the README.
 
 ## Overview
 
@@ -211,7 +215,7 @@ RTV addr, vaddr, count
 "RAM to VRAM". Copies *count* bytes from CPU RAM at *addr* to VRAM at *vaddr*.
 
 ```
-BLOAD "PICTURE",B0,P(DEC("4000")) : RTV DEC("4000"),0,8000
+BLOAD "PICTURE",B0,P(DEC("8000")) : RTV DEC("8000"),0,8000
 ```
 
 ### VTR
@@ -239,7 +243,7 @@ VCC addr, vaddr, chars
 Copies character patterns of 8 bytes each from CPU RAM into a VDC character set. The VDC reserves 16 bytes per character; `VCC` writes 8 and skips 8, the skipped bytes keep their content. *chars* is 1–255, 0 means 256.
 
 ```
-VCC DEC("4000"),DEC("2000"),0 : REM replace all 256 characters of the first set
+VCC DEC("8000"),DEC("2000"),0 : REM replace all 256 characters of the first set
 ```
 
 ---
@@ -470,6 +474,7 @@ Draws a picture with transparent parts. *source* is the VRAM address of the pack
 The list says which stretches of the sprite data go where. Bytes not mentioned are skipped on screen, which is what makes them transparent. See [VMS list format](vms-format.md).
 
 - The list may be anywhere in bank 0 except `$D000`–`$DFFF`, and may have any length.
+- **(v3)** Entry type 3 skips *n* bytes of sprite data without drawing; with it a program can cut a sprite at an edge (see [VMS list format](vms-format.md#clipping-type-3-v3)).
 - An unknown entry type prints `INVALID VMS COMMAND` and ends the command.
 - Target offsets in the list assume the row length the list was made for.
 
@@ -496,9 +501,9 @@ For programs that add their own machine code.
 
 | Location | Use |
 |---|---|
-| `$1300`–`$1BF6` | Code and variables (v2h) |
+| `$1300`–`$1BFF` | (v3) Free for the program: lists that must lie below `$4000` |
 | `$1C00`–`$1C0F` | (v3) Header: `$1C00` `JMP install`, `$1C03` version, `$1C04` threshold T of `RXV`, `$1C06`/`$1C07` and `$1C08`/`$1C09` results of `RXV`, rest reserved |
-| `$1C10`–`$3FFF` | (v3) Code and variables (currently up to `$2DFE`), including the state of `VDM` (5 bytes) and a 64-byte buffer for inverted spans |
+| `$1C10`–`$3FFF` | (v3) Code and variables (currently up to `$2EE9`), including the state of `VDM` (5 bytes) and a 64-byte buffer for inverted spans |
 | `$02FC`, `$030C`–`$0311` | BASIC vectors taken over (function call, tokenise, list, execute) |
 | `$0A`–`$14`, `$26`–`$2A` | Work bytes of `VCL`, `VMS`, `VMP`, `VDL`/`VDR`/`VDB` (v3) |
 | `$3F`/`$40`, `$77`/`$78` | List and target pointers |

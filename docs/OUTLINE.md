@@ -1,7 +1,7 @@
 # VDC-BASIC Programmer's Guide: draft outline
 
 Status: the plan the guide was written from. All chapters exist as a first draft; where a chapter differs from this outline, the chapter is right.
-Basis: branch `v2g`, version v2h of `src/vdcbasic.asm`.
+Basis: branch `v3`, version v3 of `src/vdcbasic.asm` (the outline was written for v2h; the v3 additions are marked **(v3)**).
 
 ## 1. What this guide is
 
@@ -20,9 +20,9 @@ The guiding idea, stated early and repeated: VDC-BASIC does not draw lines and c
 |---|---|
 | Reader | Knows BASIC 7.0 well. Has never programmed the VDC. Does not need assembly. |
 | Hardware | Every example that needs 64 KiB VRAM says so at its top. |
-| Binary | `vdcbasic2h.bin`, load address `$1300`, built from `src/vdcbasic.asm` with ACME and checked in. |
+| Binary | `vdcbasic3.bin`, load address `$1C00`, built from `src/vdcbasic.asm` with ACME and checked in. BASIC programs start at `$4001`; the boot loader `BOOT` (`boot/boot.bas`) sets that up and installs VDC-BASIC. Details: `docs/v3/P2a-relocate.md`. |
 | Tooling | Converters the reader needs (picture → VRAM data, sprite → `VMS` list, font sheet) are part of the guide and run in a browser as a standalone HTML page. |
-| Scope | The guide describes what the v2h code does, including its limits. |
+| Scope | The guide describes what the v3 code does, including its limits. The v2h file `vdcbasic2h.bin` stays in the repository (the benchmark in `test/bench` uses it) but is no longer covered. |
 | Main mode | 160×100 with 16 colours is the mode for anything animated. 640×200 is used for static pictures and for text on a single-colour background, where the attribute RAM rarely needs touching. |
 | Format | Markdown, one file per chapter under `docs/`, listings also as separate `.bas` files under `docs/listings/`. |
 | Listings | Every listing is run in VICE (`x128`, 80-column output) before it goes in; screenshots come from those runs. The tests are event driven (breakpoints through the remote monitor), never fixed waits. |
@@ -44,7 +44,7 @@ docs/
     vms-format.md            sprite list byte layout
     tokens.md                token values, editor/toolchain setup
     vdc-registers.md         the registers this guide uses
-    history.md               versions v2c … v2h, what changed
+    history.md               versions v2c … v3, what changed
   listings/                  .bas sources of all listings
   img/                       screenshots and diagrams
 ```
@@ -57,8 +57,8 @@ Each chapter entry lists: the goal, what is explained, the commands introduced, 
 
 **1. First contact**
 Goal: VDC-BASIC is loaded and one command visibly changes the 80-column screen.
-- What VDC-BASIC is, where it comes from (Rosenhahn 1993, Mac Bacon 2013, the v2c–v2h extensions).
-- Loading and starting: `BLOAD`, `SYS`, the install message, the two load addresses.
+- What VDC-BASIC is, where it comes from (Rosenhahn 1993, Mac Bacon 2013, the v2c–v3 extensions).
+- **(v3)** Loading and starting: `BOOT` (moves BASIC to `$4001`, loads and installs VDC-BASIC at `$1C00`), the install message, the check line every listing starts with, the ban on `GRAPHIC 1`-`4`.
 - The memory configuration it expects (`BANK`, where your own data can live).
 - How to write programs with the new keywords: on the machine, and on a PC (RetroDevStudio/C64 Studio token file, building a disk image).
 - First effect: change a colour or the cursor with one `RGW`.
@@ -69,6 +69,7 @@ Goal: VDC-BASIC is loaded and one command visibly changes the 80-column screen.
 Goal: understand that there are two separate address spaces, and read and write the second one.
 - CPU RAM versus VRAM. Why `POKE` cannot reach the screen. The two-register door (`$D600/$D601`) in one paragraph, then never again.
 - The default VRAM map in text mode: characters, attributes, character set.
+- **(v3)** The map of RAM bank 0: free area `$1300`-`$1BFF`, VDC-BASIC at `$1C00`-`$3FFF`, program from `$4001`, buffers above.
 - Register access with bit operations.
 - Commands: `VMW`, `VMD`, `VMA`, `VMO`, `RGA`, `RGO`.
 - Listing: write characters and colours straight into screen and attribute memory; a tiny "VRAM monitor" that dumps a region.
@@ -87,8 +88,9 @@ Goal: a clean 640×200 bitmap with attributes, and a safe way back to the text s
 - The registers that matter: 25 (bitmap bit, attribute bit), 28 (RAM type), 12/13 and 20/21.
 - Planning a VRAM map: where the bitmap goes, where the attributes go, what is left over as off-screen space. This map is the central diagram of the book and comes back in every later chapter.
 - Getting back: `RST`.
-- Commands: `DISP`, `ATTR`, `CRSR`, `RST`.
-- Listing: enter bitmap mode, clear bitmap and attributes, wait for a key, restore.
+- **(v3)** Drawing in the bitmap: `VDM` (mode 0), `VDL`, `VDR`, `VDB`, colour 2 = XOR.
+- Commands: `DISP`, `ATTR`, `CRSR`, `RST`; **(v3)** `VDM`, `VDL`, `VDR`, `VDB`.
+- Listings: enter bitmap mode, clear bitmap and attributes, wait for a key, restore; lines, frames and boxes (`04-draw`).
 
 **5. Sixteen colours per pixel: the chunky mode**
 Goal: the 160×100 mode with 16 freely placed colours that the rest of the book uses.
@@ -96,7 +98,8 @@ Goal: the 160×100 mode with 16 freely placed colours that the rest of the book 
 - The register recipe line by line (R0, R4, R6, R7, R9, R25, R26, R28, R36), PAL and NTSC notes.
 - Addressing a pixel: `address = base + y*80 + x/2`, left or right nibble.
 - Why this mode suits the VDC's block copy: one byte is a clean pair of pixels, so byte-wise copying never needs masks.
-- Listing: set the mode, plot pixels with `VMW`/`VMA`/`VMO`, draw a colour bar test picture with `VMF`.
+- **(v3)** `VDM 1`: lines, frames and boxes in 16 colours.
+- Listing: set the mode, plot pixels with `VMW`/`VMA`/`VMO`, draw a colour bar test picture with `VMF`; colour bars, frame and a fan of lines with the drawing commands (`05-draw`).
 
 **6. Getting pictures into VRAM**
 Goal: load a picture from disk and show it.
@@ -104,8 +107,9 @@ Goal: load a picture from disk and show it.
 - The other direction: saving a screen. Exchanging a buffer and a screen region.
 - Converting artwork: the BMP converter in `tools/`, the file layout it writes.
 - Custom text-mode character sets as a side trip.
-- Commands: `RTV`, `VTR`, `SWP`, `VCC`.
-- Listing: picture viewer; screen saver/loader pair.
+- **(v3)** Packed pictures: the VRL format and `RXV`, threshold T, `tools/vrl.py`.
+- Commands: `RTV`, `VTR`, `SWP`, `VCC`; **(v3)** `RXV`.
+- Listings: picture viewer; screen saver/loader pair; a packed picture unpacked by `RXV` (`06-rxv`).
 
 ### Part III: Moving things
 
@@ -150,22 +154,25 @@ Goal: a figure with transparent pixels over a background.
 - The list format, read through one small hand-made example.
 - Producing lists from artwork with the tools in `tools/`.
 - Moving a sprite: redraw from a clean background page (ties back to chapter 8), or save and restore the area under it.
+- **(v3)** Clipping at an edge with the source skip (list entry type 3).
 - Commands: `VMS`.
-- Listing: sprite walking over the picture from chapter 6, keyboard controlled.
+- Listings: sprite walking over the picture from chapter 6, keyboard controlled; a sprite cut at a viewport edge (`11-clip`).
 
 **12. Scripts for the chip: command lists**
 Goal: draw a complete scene with a single BASIC statement.
 - The real cost in a BASIC program is the interpreter parsing each statement, not the VDC. A command list stores the parameters as bytes, so one `VCL` replaces dozens of statements.
 - Building a list: by `POKE`, from `DATA`, or loaded from disk. The byte layout for copy, fill, write, sprite and `SYN` entries.
 - Lists as data: one list per wall piece, per screen, per animation frame.
+- **(v3)** Entry types 8 (`RXV`), 9 (`VMS` with the list in bank 1) and 10 (jump).
 - Commands: `VCL`.
-- Listing: the tile map from chapter 7 drawn by one list, with timing.
+- Listings: the tile map from chapter 7 drawn by one list, with timing; unpack, jump and sprites from bank 1 (`12-chain`).
 
 ### Part IV: Putting it together
 
 **13. Speed, memory and other limits**
 - `FAST`, and what it does and does not speed up.
-- Compiling VDC-BASIC programs.
+- **(v3)** Cycles per row after the faster `VMC`/`VMF` loop; why the ready waits stay (experiment P2g, with the reservation about real hardware and register 36).
+- Compiling VDC-BASIC programs (**(v3)**: Blitz! runtime image 2).
 - A VRAM budget worksheet: pages, sheets, fonts, sprite data.
 - 16 KiB machines: what fits.
 - Parameter ranges and wrap-around pitfalls collected in one place.
@@ -191,21 +198,23 @@ Fixed layout per command: syntax, parameters with ranges, what it does, notes an
 | Registers | `RGW`, `RGA`, `RGO`, `RGD()` including pseudo registers 254 and 255 |
 | Single VRAM bytes | `VMW`, `VMA`, `VMO`, `VMD()` |
 | Fill and copy | `VMF`, `VMC` |
-| CPU RAM ↔ VRAM | `RTV`, `VTR`, `SWP`, `VCC` |
+| CPU RAM ↔ VRAM | `RTV`, `VTR`, `SWP`, `VCC`; **(v3)** `RXV` |
+| Drawing **(v3)** | `VDM`, `VDL`, `VDR`, `VDB` |
 | Display control | `DISP`, `ATTR`, `CRSR`, `SYN`, `RST` |
 | Text | `VCS`, `VMP`, `VMB` |
 | Sprites and lists | `VMS`, `VCL` |
 
 ### 4.2 Tables and appendices
 
-- `VCL` entry types with exact byte layout (types 1–7, 12 and 13, terminator 0).
-- `VMS` list layout: alpha byte, 16-bit count, entry types 1, 2 and 8.
+- `VCL` entry types with exact byte layout (types 1–10, 12 and 13, terminator 0).
+- `VMS` list layout: alpha byte, 16-bit count, entry types 1, 2, 3 (v3) and 8.
+- **(v3)** VRL format: tokens, file header.
 - Token values and keyword abbreviations; editor setup.
 - VDC registers used in this guide, with the values of the standard modes.
 - VRAM maps: text mode default, 640×200 bitmap, chunky mode with two pages.
 - File formats written by the tools.
 - Messages (`invalid`, `invalid vms command`) and what causes them.
-- Version history v2c–v2h.
+- Version history v2c–v3.
 - Zero-page and memory locations VDC-BASIC uses, for readers who mix in their own machine code.
 
 ## 5. Points found in the source that the reference must state precisely
@@ -216,7 +225,7 @@ These came up while reading `vdcbasic.asm` and differ from, or were missing in, 
 2. `VMC`/`VMF`: if repetitions are given, the target increment is required. The separator before the increments is skipped without being checked for a comma.
 3. Repetitions are one byte; 0 behaves as 256.
 4. `VMC` source increment 0 or omitted means "source runs on contiguously". A source cannot be held still across repetitions.
-5. `VCL` type 7 (`VMW` with repetitions and increment) is marked "reserved" in the comment but works. Type 13 is `SYN` (`n` register/value pairs; 0 = only wait). Types 8–11 (`VMO`/`VMA`) and `$FF` (sleep) are listed in the comment and not implemented. The bank parameter in the comment does not exist; lists are read from RAM bank 0.
+5. `VCL` type 7 (`VMW` with repetitions and increment) is marked "reserved" in the comment but works. Type 13 is `SYN` (`n` register/value pairs; 0 = only wait). Types 8–11 (`VMO`/`VMA`) and `$FF` (sleep) were listed in the comment and not implemented; since v3, types 8 (`RXV`), 9 (`VMS` from bank 1) and 10 (jump) exist, type 11 and `$FF` do not. The bank parameter in the comment does not exist; lists are read from RAM bank 0.
 6. `VCL` type 6/7 take the value as a 16-bit field of which only the low byte is used.
 7. `VMS` entry type 2 copies a rectangle to the target address using the current R1 as row length; it takes no offset of its own.
 8. `VMP` maps a character to glyph number `code − 32`, so codes below 32 are not printable, and it reads the string from bank 1; `VMB` reads from bank 0.
@@ -225,12 +234,12 @@ These came up while reading `vdcbasic.asm` and differ from, or were missing in, 
 11. `DISP`, `ATTR`, `CRSR` accept 0–65535 only (open TODO in the source).
 12. `RTV`, `VTR`, `SWP` with count 0 transfer 65536 bytes; `VCC` with count 0 copies 256 characters.
 13. 64 KiB VRAM is only addressable after `RGO 28,16`; without it, addresses above 16383 mirror the lower 16 KiB even on a 64 KiB machine. Every 64 KiB example must start with it.
-14. The source assembles to `$1300` and writes `vdcbasic2h.bin`. The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2h, and the tools load `VDCBASIC2F.1300`. v2h is 2295 bytes (`$1300`–`$1BF6`), which leaves 10 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
+14. (v2h) The source assembled to `$1300` and wrote `vdcbasic2h.bin`; v3 assembles to `$1C00` and writes `vdcbasic3.bin` (4842 bytes, `$1C00`-`$2EE9`). The binaries `vdcbasic.bin`, `vdcbasic2c.bin` and `vdcbasicac6.bin` are older than v2h, and the tools load `VDCBASIC2F.1300`. v2h is 2295 bytes (`$1300`–`$1BF6`), which leaves 10 bytes below the BASIC start at `$1C01` and no longer fits at `$0AC6` without running into `$1300`.
 
 ## 6. Proposed order of work
 
 1. Agree on this outline and the open questions.
-2. Build a small test harness: tokenise a `.bas` listing with the VDC-BASIC keywords, put it on a disk image with the v2h binary, run it in `x128`, take a screenshot.
+2. Build a small test harness: tokenise a `.bas` listing with the VDC-BASIC keywords, put it on a disk image with `BOOT` and the v3 binary, run it in `x128`, take a screenshot.
 3. Write the reference first. It forces every item in section 5 to be settled by test.
 4. Write the tour chapter by chapter, each with tested listings.
 5. Review pass for reading flow, then the German translation.

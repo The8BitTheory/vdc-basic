@@ -24,7 +24,7 @@ Needs `x128` and `c1541` from VICE and Python 3. `bastok.py` tokenises the listi
 
 Known limit of compiled programs: after an error inside an extension has been caught by `TRAP`, later extensions no longer work correctly (Blitz! runtime, independent of VDC-BASIC). `chapter-claims.bas` therefore checks the syntax error from `SYNC=1` last.
 
-**`-l`**: until the guide is moved to v3, its listings run with v2h (`vdcbasic2h.bin` at `$1300`, BASIC at `$1C01`, no `BOOT`), as before.
+**`-l`**: the listings of the guide (`docs/listings`) run like the tests: through `BOOT` with v3, tokenised for `$4001`, with the files of `docs/listings/data` on the disk. A listing has no test code of its own; `run.sh` wraps it so that reaching its end reports 0 and a BASIC error n reports 200 + n. Screenshots with `-d docs/img` (the directory must exist). Two screenshots (`03-fill`, `12-list`) show measured jiffy numbers that differ by one or two between runs; they were left as they were.
 
 **Monitor scripts** (`boot_sector.py`, `e1_blitz.py`, module `vicemon.py`): VICE remote monitor on `127.0.0.1`, port from `--port`, else `DBE_VICE_PORT`, else 6631 (range 6631–6649, checked with a bind test). They stop only their own emulator process and wait for breakpoints, never for a fixed time.
 

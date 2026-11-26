@@ -28,6 +28,28 @@ From this follow the rules of thumb:
 4. **Cross the border once.** `RTV`, `VTR` and `SWP` are the slow road. Load everything at the start; afterwards stay inside VRAM.
 5. **Draw unseen.** What is built on a hidden page may take as long as it takes.
 
+### What one row costs
+
+Version 3 made the loop that `VMC`, `VMF`, `VCL` and `VMS` run for every row of a blit about a quarter faster; the results are the same. These are processor cycles per row at 1 MHz (`SLOW`), measured in VICE with a timer, before and after:
+
+| One row of | Before | Now |
+|---|---|---|
+| `VMC`, 8 bytes | 180 | 136 |
+| `VMC`, 8 bytes, with source step | 274 | 200 |
+| `VMC`, 40 bytes | 181 | 149 |
+| `VMF`, 8 bytes | 230 | 173 |
+| `VMS` entry of type 2, 8 bytes | 183 | 137 |
+
+A row is about a hundred cycles of CPU work. The rest of the time the CPU waits until the VDC says it is ready: the program polls a status bit before it touches a VDC register again. So the gain is real for short rows and small for long ones, where the chip's own copying time dominates. A tile blit of 16 rows costs around 2200 cycles, about two milliseconds; the statement around it still costs two jiffies, and that is why a list is the faster way to many blits.
+
+These figures come from the emulator. In another emulator that models the VDC more closely (Z64K) the numbers moved in the same direction and by about the same amount, with more scatter from run to run, and on a real VDC they may be different. The jiffy figures in the table at the top of the chapter were measured before this change and have not been measured again; one statement is still mostly BASIC, so they hardly change.
+
+### Waiting for the chip
+
+Why not skip some of the waits and let the CPU run ahead? An experiment in Z64K says that two waits per row are needed and that each one has a reason: one before the first register access after a copy was started (the previous row must be finished), and one before the byte count is written (the VDC must have read ahead the first byte). The waits in between are not needed and could be left out, which saves 5 to 17 per cent per row for short rows at 2 MHz. Waiting only every few rows fails. In the 160 × 100 mode the VDC has only about 16 free memory cycles per character row while it draws the screen, so even a copy of one byte can take longer than the CPU takes to the next row; only in the blank between two frames does the chip finish in time. Whoever writes his own code against `$D600` and `$D601` should wait for bit 7 before every access to `$D601`.
+
+The refresh register 36 (the Kernal sets it to 5) has no influence on speed in that emulator when it is 0 or 1; larger values slow short rows down. It matters on real hardware, not for speed but for the memory itself: the VDC's RAM is dynamic. With register 36 at 0, the chip refreshes only while it draws the screen, and in the vertical blank for a few milliseconds not at all. Nobody has measured on a real machine yet whether that costs data; the figures and the test program (`docs/v3/P2g-wait-experiment.md`) are there for whoever tries. If you leave the register as the Kernal sets it, you are safe.
+
 ### FAST
 
 The C128 can run its processor at twice the speed. The price is that the 40-column screen goes blank, which a program for the 80-column screen does not care about. `FAST` switches it on, `SLOW` off.
@@ -50,6 +72,8 @@ Since most of the time goes into BASIC interpreting statements, a compiler helps
 ```
 
 The interpreter reads the two colons as two empty statements and ignores them, so a program written this way runs both compiled and uncompiled. If you think you may compile a program one day, write the colons from the start.
+
+With v3 one more rule applies. The compiled program must use the runtime that loads at `$4001`, above VDC-BASIC (Blitz! runtime image 2). The compiler picks it when the program contains a `GRAPHIC` statement, so a line like `63999 GRAPHIC 0`, which is never executed, is enough. The compiled program is started through `BOOT`, with `50 RUN"PROGRAM"`. Details are in the [README](../README.md#compiling-programs).
 
 ## A budget for VRAM
 
@@ -102,13 +126,17 @@ VDC-BASIC checks that numbers are in range, and nothing else. The following mist
 
 **`PEEK` and `POKE` in the wrong bank.** `RTV`, `VTR`, `VMS`, `VCL` and `VMB` always use bank 0. `PEEK` and `POKE` use whatever `BANK` says, which is 15 unless you change it, and in bank 15 everything from `$4000` up is ROM. Wrap them in `BANK 0` ... `BANK 15`.
 
-**The program grew into its buffer.** The listings load files to `$4000` and put lists at `$5000` or `$6000`. A BASIC program longer than about 9000 bytes reaches `$4000`. Loading a file then overwrites the end of the program.
+**The program grew into its buffer.** The listings load files to `$8000` and put lists at `$A000`. A BASIC program starts at `$4001`, so it can grow to 16 KiB before it reaches `$8000`. Loading a file then overwrites the end of the program.
 
-**Drawing outside the picture.** Nothing is clipped. A blit that leaves the page at the bottom continues in whatever lies behind the page. One that leaves it at the right edge continues at the left edge, one row down.
+**VDC-BASIC overwritten.** VDC-BASIC occupies `$1C00` to `$2EE9`, and `$3FFF` is the limit. `GRAPHIC 1` to `GRAPHIC 4` build the VIC bitmap and its colours in exactly that area. `GRAPHIC CLR` clears it. Both destroy VDC-BASIC without a message; the next new keyword crashes the machine. A program must not use them. The area `$1300`-`$1BFF` below VDC-BASIC is free, and lists that must lie below `$4000` can go there.
+
+**Drawing outside the picture.** Nothing is clipped, not even by `VDL`, `VDR` and `VDB`. A blit that leaves the page at the bottom continues in whatever lies behind the page. One that leaves it at the right edge continues at the left edge, one row down; so does a line with an *x* beyond the end of the row.
 
 **A copy onto itself in the wrong direction.** Copying to a higher address within the source range repeats the beginning of the source (chapter 3).
 
-**A list in the wrong place.** Lists for `VCL` and `VMS` cannot lie between `$D000` and `$DFFF`.
+**A list in the wrong place.** Lists for `VCL` and `VMS`, and streams for `RXV`, cannot lie between `$D000` and `$DFFF`. A list in bank 1 (`VCL` type 9) must lie in `$4000`-`$CFFF` or `$E000`-`$FEFF`. None of this is checked.
+
+**A stream that does not end.** `RXV` reads tokens until it meets a zero byte. A stream without one, or an address that points at the header of the file instead of 5 bytes behind it, makes it read garbage.
 
 **The step that was always 80.** Blits, fonts and sprite lists are made for a certain row length. In a wide world (chapter 9) the step is the row length of that world, `VCS` needs its fourth parameter, and sprites must be converted for that row length.
 

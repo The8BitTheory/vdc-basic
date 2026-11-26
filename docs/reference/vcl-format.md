@@ -43,7 +43,7 @@ Fill a 160×100 page at VRAM 0 with colour 0, then blit a packed 4×16 tile from
 | `0` | end |
 
 ```
-10 A=DEC("4000"):BANK 0
+10 A=DEC("A000"):BANK 0
 20 FOR I=0 TO 18:READ B:POKE A+I,B:NEXT
 30 DATA 4, 0,0, 0,0, 64,31
 40 DATA 2, 32,78, 52,3, 4,0, 16,0, 80,0

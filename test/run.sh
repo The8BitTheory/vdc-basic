@@ -17,8 +17,6 @@
 #           If a file NAME.keys exists next to NAME.bas, its characters are fed to
 #           the GETKEY statements one by one, and the run ends when they are used up.
 #           The files in docs/listings/data are on the disk.
-#           Until the guide is moved to v3 (P8), the listings run with v2h (vdcbasic2h.bin at
-#           $1300, BASIC at $1C01, no BOOT) as before.
 #   -z      run in Z64K instead of VICE (test/z64k.py: own Xvfb, java, Z64K.jar in ~/.local/share/z64k or
 #           Z64K_JAR). Same disk, same exit-code rule ($D7FF). Needs no VICE monitor; -d is ignored (Z64K
 #           has no VDC screenshot). Z64K starts take about 8 s each (Java); ZTIMEOUT (default 600 s) is
@@ -46,22 +44,17 @@ if [ -n "$COMPILE" ]; then
 fi
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
+BIN=${VDCBASIC:-$HERE/../vdcbasic3.bin}
+cp "$BIN" "$WORK/vdcbasic3"
+sed 's/^50 .*/50 RUN"T"/' "$HERE/../boot/boot.bas" >"$WORK/boot.bas"
+python3 "$HERE/bastok.py" "$WORK/boot.bas" "$WORK/boot.prg" || exit 2
+# BOOT first: -autostart disk.d64 would load the first file
+c1541 -format "test,01" d64 "$WORK/base.d64" -write "$WORK/boot.prg" boot \
+    -write "$WORK/vdcbasic3" vdcbasic3 >/dev/null || exit 2
 if [ -n "$WRAP" ]; then
-    # the guide still loads v2h itself (until P8)
-    BIN=${VDCBASIC:-$HERE/../vdcbasic2h.bin}
-    cp "$BIN" "$WORK/vdcbasic2h"
-    c1541 -format "test,01" d64 "$WORK/base.d64" -write "$WORK/vdcbasic2h" vdcbasic2h >/dev/null || exit 2
     for d in "$HERE"/../docs/listings/data/*; do
         [ -f "$d" ] && { c1541 "$WORK/base.d64" -write "$d" "$(basename "$d")" >/dev/null || exit 2; }
     done
-else
-    BIN=${VDCBASIC:-$HERE/../vdcbasic3.bin}
-    cp "$BIN" "$WORK/vdcbasic3"
-    sed 's/^50 .*/50 RUN"T"/' "$HERE/../boot/boot.bas" >"$WORK/boot.bas"
-    python3 "$HERE/bastok.py" "$WORK/boot.bas" "$WORK/boot.prg" || exit 2
-    # BOOT first: -autostart disk.d64 would load the first file
-    c1541 -format "test,01" d64 "$WORK/base.d64" -write "$WORK/boot.prg" boot \
-        -write "$WORK/vdcbasic3" vdcbasic3 >/dev/null || exit 2
 fi
 if [ -n "$Z64K" ]; then
     SHOTDIR=
@@ -89,9 +82,7 @@ for f in "$@"; do
     fi
     cp "$WORK/base.d64" "$WORK/t.d64"
     start=$WORK/t.prg
-    if [ -n "$WRAP" ]; then
-        python3 "$HERE/bastok.py" "$src" "$WORK/t.prg" || exit 2
-    elif [ -n "$COMPILE" ]; then
+    if [ -n "$COMPILE" ]; then
         rm -rf "$WORK/blitz"
         if ! python3 "$HERE/blitzprep.py" "$f" "$WORK/tb.bas"; then
             echo "FAIL  $f (blitzprep)"; fail=1; continue

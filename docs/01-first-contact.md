@@ -4,34 +4,43 @@ Every Commodore 128 has two video chips. One of them is the VIC-II, inherited fr
 
 The other one sits behind the RGB socket. It is called the VDC (the 8563, or the 8568 in the flat C128 D), it shows 80 columns, 640 pixels across, 16 colours, and it can copy and fill its own memory without help from the CPU. BASIC 7.0 has almost nothing to say to it. It can print text on it, and that is all.
 
-VDC-BASIC closes that gap. It adds 23 instructions and 2 functions to BASIC 7.0, and all of them are about the VDC. This book shows what you can build with them.
+VDC-BASIC closes that gap. It adds 28 instructions and 2 functions to BASIC 7.0, and all of them are about the VDC. This book shows what you can build with them.
 
-One thing is worth knowing before we start, because it shapes everything that follows. VDC-BASIC has no command to draw a line and none to draw a circle. It is not that kind of extension. What it gives you is control over the chip's memory: put pictures into it, move them around inside it, decide which part of it appears on the screen. The VDC is very good at moving memory. A game screen, a scrolling landscape, a figure walking in front of a background, a line of text in your own font: all of these turn out to be pictures being copied from one place to another, and that is the kind of work we will hand to the chip.
+One thing is worth knowing before we start, because it shapes everything that follows. VDC-BASIC is not a drawing package. It has a few commands for lines, rectangles and boxes (chapters 4 and 5), and none for circles, fills or polygons. What it gives you above all is control over the chip's memory: put pictures into it, move them around inside it, decide which part of it appears on the screen. The VDC is very good at moving memory. A game screen, a scrolling landscape, a figure walking in front of a background, a line of text in your own font: all of these turn out to be pictures being copied from one place to another, and that is the kind of work we will hand to the chip.
 
 ## What you need
 
 - A C128 (or C128 D) with an 80-column display, or an emulator. VICE's `x128` works well.
-- The file `VDCBASIC2H` on a disk. It is the file `vdcbasic2h.bin` from the repository.
+- Two files on a disk: `VDCBASIC3`, which is the file `vdcbasic3.bin` from the repository, and the boot loader `BOOT` (`boot/boot.bas`). Put `BOOT` first on the disk.
 - For most of the book: a VDC with 64 KiB of video memory. The flat C128 D has it from the factory, many older machines have been upgraded, and in VICE it is a setting. Examples that need 64 KiB say so in their first lines. This chapter and the next two run with 16 KiB.
 
 ## Loading it
 
-VDC-BASIC is a machine language program of a little more than 2 KiB that lives at `$1300`, in the gap below the start of BASIC programs. You load it and start it once:
+VDC-BASIC is a machine language program of about 5 KiB. It lives at `$1C00`, and BASIC programs start at `$4001`, above it. A BASIC program normally starts at `$1C01`, so the loader first has to move the start of BASIC out of the way. That is the job of `BOOT`, a five-line program:
 
 ```
-BLOAD "VDCBASIC2H",B0
-SYS DEC("1300")
+RUN "BOOT"
 ```
 
-It answers with
+`BOOT` runs twice. The first time it sets the start of the BASIC text to `$4001` and loads itself there. The second time it loads `VDCBASIC3` to `$1C00`, installs it with `SYS 7168` (`SYS DEC("1C00")` does the same) and checks the version byte at `$1C03`. It answers with
 
 ```
-VDC BASIC V2H INSTALLED
+VDC BASIC V3 INSTALLED
 ```
 
-and from this moment the C128 understands the new words. They are real BASIC keywords: you can type them in direct mode, use them in programs, and `LIST` shows them like any other command. They stay until you reset the machine.
+and ends with `NEW`, which leaves an empty BASIC memory from `$4001` on. From this moment the C128 understands the new words. They are real BASIC keywords: you can type them in direct mode, use them in programs, and `LIST` shows them like any other command. They stay until you reset the machine.
 
-In this book every program loads VDC-BASIC itself in its first lines. That costs a second, and it means each listing runs on its own. Installing it a second time does no harm.
+If you put `BOOT` first on the disk, VICE starts it with `-autostart disk.d64`, and `tools/mkboot.py` writes a boot sector, so that a C128 loads and runs `BOOT` when it is switched on with the disk in the drive. To start a program of your own right after the installation, replace the last line of `BOOT` with `50 RUN"PROGRAM"`.
+
+In this book every program starts with a line that checks that `BOOT` has done its work:
+
+```
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
+```
+
+`PEEK(46)` is the high byte of the start of BASIC, 64 (`$40`) after `BOOT`. So the sequence for every listing is: `RUN "BOOT"`, then `RUN "NAME"` or `DLOAD "NAME"` and `RUN`. The disk image that `docs/listings/mkdisk.sh` builds is ready for this.
+
+One thing is not allowed with v3: `GRAPHIC 1` to `GRAPHIC 4`, the bitmap modes of the VIC. Their colour memory and bitmap lie at `$1C00`-`$3FFF` and would overwrite VDC-BASIC. `GRAPHIC 0` and `GRAPHIC 5` are fine, `GRAPHIC CLR` is not.
 
 There is one small price for new keywords. BASIC finds keywords anywhere in a line, also inside variable names. `SYN`, `ATTR`, `DISP`, `RST` and the others are now reserved, so a variable called `SYNC` or `DISPLAY` will produce a `?SYNTAX ERROR`. The complete list is in the [command reference](reference/commands.md).
 
@@ -40,7 +49,7 @@ There is one small price for new keywords. BASIC finds keywords anywhere in a li
 You can type everything on the C128 itself. If you prefer to write on a PC and run in an emulator, the tool that turns text into a program file has to know the new keywords, because a BASIC program stores each keyword as a number (a token).
 
 - RetroDevStudio (formerly C64 Studio) reads the file `BASIC V7.0 VDC.txt` from the repository as a BASIC dialect.
-- `test/bastok.py` in the repository does the same from the command line: `python3 test/bastok.py program.bas program.prg`.
+- `test/bastok.py` in the repository does the same from the command line: `python3 test/bastok.py --start 0x4001 program.bas program.prg`. The option `--start` is the address where the program will lie; for v3 it is `$4001`.
 
 All listings of this book are in `docs/listings/` as text files.
 
@@ -49,7 +58,7 @@ All listings of this book are in `docs/listings/` as text files.
 <!-- listing: 01-hello.bas -->
 ```
 10 REM FIRST CONTACT: INSTALL VDC-BASIC AND ASK THE CHIP WHO IT IS
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 V=RGD(254):M=RGD(255)
 40 PRINT "VDC CHIP : ";:IF V=2 THEN PRINT "8568":ELSE PRINT "8563"
 50 PRINT "VDC RAM  :";16+48*M;"KIB"
@@ -58,7 +67,7 @@ All listings of this book are in `docs/listings/` as text files.
 
 ![The first program has run](img/01-hello.png)
 
-Line 20 is the loading we just discussed.
+Line 20 is the check we just discussed: `BOOT` must have run.
 
 Line 30 uses the first of the two new functions. `RGD(n)` reads a VDC register. The chip has 37 of them (38 on the 8568), numbered from 0, and they are its control panel: screen size, colours, cursor shape, where in its memory the picture starts. We will meet the important ones one by one.
 

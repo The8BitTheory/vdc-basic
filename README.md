@@ -8,7 +8,7 @@ Current version: **v3** (in development), file `vdcbasic3.bin`, load address `$1
 RUN "BOOT"
 ```
 
-The guide and its listings still describe v2h (`vdcbasic2h.bin` at `$1300`, `BLOAD "VDCBASIC2H",B0 : SYS DEC("1300")`); they move to v3 in a later step.
+The guide, its listings and the reference describe v3. Every listing of the guide starts with a line that checks that `BOOT` has run (`IF PEEK(46)<>64 …`); `docs/listings/mkdisk.sh` builds a disk image with `BOOT`, `VDCBASIC3`, all listings (tokenised for `$4001`) and their data files.
 
 ### Memory and loading (v3)
 
@@ -16,7 +16,7 @@ The guide and its listings still describe v2h (`vdcbasic2h.bin` at `$1300`, `BLO
 |---|---|
 | `$1300`–`$1BFF` | free (e.g. for lists that must lie below `$4000`) |
 | `$1C00`–`$1C0F` | header with fixed addresses: `$1C00` `JMP install` (`SYS 7168`), `$1C03` version (`$30` = v3.0), `$1C04` block fill threshold T of `RXV` (default 14, provisional), `$1C06`/`$1C07` address behind the end token of the last `RXV` stream, `$1C08`/`$1C09` VRAM address behind the last byte `RXV` wrote or skipped, the rest reserved |
-| `$1C10`–`$2DFE` | code and variables of VDC-BASIC; up to `$3FFF` is reserved for it |
+| `$1C10`–`$2EE9` | code and variables of VDC-BASIC; up to `$3FFF` is reserved for it |
 | `$4000` | 0 (the byte before the program text) |
 | `$4001`– | BASIC program, or a Blitz! program with runtime image 2 |
 
@@ -30,7 +30,7 @@ This file is the technical view: what is in the repository, how to build and tes
 
 | | |
 |---|---|
-| [Programmer's Guide](docs/README.md) | 14 chapters that build on each other, from the first register write to a small game. Every listing is tested. |
+| [Programmer's Guide](docs/README.md) | 14 chapters that build on each other, from the first register write to a small game, including the v3 commands (`RXV`, drawing, list entries 8, 9, 10, source skip). Every listing is tested. |
 | [Command reference](docs/reference/commands.md) | All commands with syntax, ranges and limits |
 | [VCL list format](docs/reference/vcl-format.md), [VMS list format](docs/reference/vms-format.md), [VRL format](docs/reference/vrl-format.md) | Byte layout of command lists, sprite lists and the run-length streams of `RXV` |
 | [Converter](docs/tools/README.md) | Browser page and command line tool that turn pictures into files for VDC-BASIC programs; file formats |
@@ -43,7 +43,7 @@ This file is the technical view: what is in the repository, how to build and tes
 | `src/vdclib.a` | VDC access routines as ACME macros (register and VRAM access, block operations, RAM ↔ VRAM transfer). Usable without the BASIC part. |
 | `vdcbasic3.bin` | Current binary (v3, `$1C00`), assembled from `src/` |
 | `boot/boot.bas` | Boot loader for v3 (`BOOT`) |
-| `vdcbasic2h.bin` | v2h (`$1300`), used by the guide and by `test/bench` |
+| `vdcbasic2h.bin` | v2h (`$1300`), used by `test/bench` only |
 | `vdcbasic.bin`, `vdcbasicac6.bin`, `vdcbasic2c.bin` | Binaries of earlier versions |
 | `BASIC V7.0 VDC.txt` | Keyword and token table: a BASIC dialect file for RetroDevStudio / C64 Studio, also read by `test/bastok.py` |
 | `docs/` | The guide, the reference, listings, screenshots, source pictures, converter |
@@ -63,7 +63,7 @@ This writes `vdcbasic3.bin` into the current directory (`acme -l build/vdcbasic3
 
 Things to know before changing the code:
 
-- **Size.** The code must end below `$4000`, where BASIC ROM and the program text begin; an assertion at the end of the source checks this. v3 occupies `$1C00`–`$2DFE`; 4609 bytes are left.
+- **Size.** The code must end below `$4000`, where BASIC ROM and the program text begin; an assertion at the end of the source checks this. v3 occupies `$1C00`–`$2EE9`; 4374 bytes are left.
 - **Load address and header.** `* = $1c00` near the top of the source, followed by the 16-byte header. Its addresses are an interface (programs `PEEK` and `POKE` them); assertions check that every field stays where it is.
 - **BASIC ROM.** Parts of the code run with the BASIC ROM mapped in and must therefore stay below `$4000`; the macro `vdclib_assert_below_basic_rom` checks this at assembly time.
 - **Token order.** Token `$FE $3A` is a placeholder and must stay in the table so that the later tokens keep their numbers. `VDL`, `VDR`, `VDB` (`$FE $3E`–`$FE $40`) were reserved before `RXV` (`$FE $41`) was added, `VDM` came last (`$FE $42`); assertions check the positions of `RXV` and `VDM`.
@@ -102,7 +102,7 @@ The zero page and other locations the extension uses are listed at the end of th
 ```
 test/run.sh test/*.bas                           # behaviour tests, interpreted
 test/run.sh -c test/*.bas                        # the same tests compiled with Blitz! (runtime image 2)
-test/run.sh -l -d docs/img docs/listings/*.bas   # the listings of the guide (still v2h), with screenshots
+test/run.sh -l -d docs/img docs/listings/*.bas   # the listings of the guide (BOOT, v3), with screenshots
 test/boot_sector.py                              # BOOT via the C128 boot sector and via -autostart disk.d64
 test/rxv/run_rxv.py [-c]                         # RXV against tools/vrl.py, whole VRAM
 test/draw/run_draw.py [-c] [--quick]             # VDM/VDL/VDR/VDB against test/ref/vdcdraw.py, whole VRAM
@@ -152,7 +152,7 @@ The guide collects the practical consequences in [chapter 13](docs/13-speed-and-
 | v2e | May 2025 | `VCS` and `VMP`: text in bitmap modes |
 | v2f | Jun 2025 | `VMC`: negative steps |
 | v2g | Oct 2025 | `VMB`; row length parameter for `VCS`; `VMP` with an empty string; `VCL` and `VMS` |
-| v3 | (in development) | Moved to `$1C00`, header with fixed addresses at `$1C00`–`$1C0F`, BASIC text at `$4001`, boot loader `BOOT`. New: `RXV` (unpack a VRL stream from bank 0 into VRAM, threshold T at `$1C04`), `VCL` entry type 8 (`RXV`), `VCL` entry type 9 (`VMS` with the list in RAM bank 1), `VMS` entry type 3 (source skip, for clipping sprites at the edge of a viewport); `VDM`, `VDL`, `VDR`, `VDB` (drawing area, line, rectangle outline, filled box in bitmap and chunky mode, block fill for long middle parts). |
+| v3 | (in development) | Moved to `$1C00`, header with fixed addresses at `$1C00`–`$1C0F`, BASIC text at `$4001`, boot loader `BOOT`. New: `RXV` (unpack a VRL stream from bank 0 into VRAM, threshold T at `$1C04`), `VCL` entry type 8 (`RXV`), `VCL` entry type 9 (`VMS` with the list in RAM bank 1), `VMS` entry type 3 (source skip, for clipping sprites at the edge of a viewport); `VDM`, `VDL`, `VDR`, `VDB` (drawing area, line, rectangle outline, filled box in bitmap and chunky mode, block fill for long middle parts); `VCL` entry type 10 (continue at an address); the row loop of `VMC`/`VMF`/`VMS` without subroutine calls (20-30 % fewer cycles per row). The guide and the listings now describe v3. |
 | v2h | Nov 2026 | Fixes: `VCL` lists longer than 256 bytes; `VMS` lists above `$4000`; `VMS` entry type 2 no longer inherits steps from `VMC`; `VMB` with length 0; `VCL` type 7 with step 0; `VCL` with an unknown entry type no longer hangs. New: `VCL` entry type 13 (`SYN` with register/value pairs, e.g. an atomic page flip inside a list), optionally without waiting when the border has already begun. Tests, guide and reference added. |
 
 ## Credits

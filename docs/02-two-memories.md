@@ -40,10 +40,28 @@ This arrangement is a habit of the C128, not a law of the chip. The VDC keeps th
 
 The character at row *r*, column *c* (both counted from 0) is at address *r* × 80 + *c*. Its attribute is at the same position in the attribute area, 2048 further up.
 
+## The map of RAM
+
+There is a second map to keep in mind, the one of the computer's own memory. Whenever this book gives a RAM address, it means bank 0 (the VDC-BASIC commands that take RAM addresses ignore `BANK` and always use it). VDC-BASIC and your program share it like this:
+
+| RAM address | Content |
+|---|---|
+| `$0000`-`$12FF` | System: zero page, stack, Kernal and BASIC work areas |
+| `$1300`-`$1BFF` | Free: 2304 bytes for your own data. Lists that must lie below `$4000` can go here. |
+| `$1C00`-`$1C0F` | Header of VDC-BASIC: a jump at `$1C00`, the version at `$1C03` (`$30` is v3.0), the threshold of `RXV` at `$1C04` (chapter 6) |
+| `$1C10`-`$2EE9` | The code and variables of VDC-BASIC. Everything up to `$3FFF` is reserved for it. |
+| `$4000` | A zero byte, the one in front of the program |
+| `$4001`- | Your BASIC program |
+| above the program | Free: buffers for loading files, command lists, sprite lists (not `$D000`-`$DFFF`, where the I/O chips are) |
+
+This is why the listings of this book use `$8000` for the load buffer and `$A000` for lists: both are far above any program of this size, and a program may grow up to `$8000` before it runs into them. The variables of a BASIC program do not appear in the map; they live in bank 1.
+
+Two consequences. The first is that the VIC bitmap modes `GRAPHIC 1` to `GRAPHIC 4` are off limits, as chapter 1 said: they would use `$1C00`-`$3FFF`. The second is that the 80-column screen has nothing to fear from your program: the VDC has its own memory, and the two maps do not overlap at all.
+
 <!-- listing: 02-direct.bas -->
 ```
 10 REM TWO MEMORIES: WRITE CHARACTERS AND COLOURS STRAIGHT INTO VRAM
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 PRINT CHR$(147)
 40 S=0:C=2048:REM SCREEN AND ATTRIBUTE MEMORY
 50 P=12*80+38:REM ROW 12, COLUMN 38
@@ -99,7 +117,7 @@ The pattern of screen code *n* therefore starts at 8192 + 16 × *n*. Let us look
 <!-- listing: 02-glyph.bas -->
 ```
 10 REM TWO MEMORIES: THE CHARACTER SET IS ORDINARY VRAM, TOO
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 PRINT CHR$(147);"A BANANA AND AN ANANAS"
 40 G=DEC("2000")+16*1:REM PATTERN OF SCREEN CODE 1, THE LETTER A
 50 DIM B(7)
@@ -133,6 +151,6 @@ This is the second time something changed everywhere at once although we changed
 | `RGO reg, value` | switches bits on in a register |
 | `RGA reg, value` | switches bits off in a register |
 
-We can now reach every byte the VDC owns. But one byte at a time, from BASIC, is slow. Painfully slow, as the next chapter will measure. Then we let the chip do it.
+We can now reach every byte the VDC owns, and we know where our own bytes live. But one byte at a time, from BASIC, is slow. Painfully slow, as the next chapter will measure. Then we let the chip do it.
 
 [Next: The chip does the work](03-the-chip-does-the-work.md)

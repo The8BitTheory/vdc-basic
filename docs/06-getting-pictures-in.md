@@ -22,7 +22,7 @@ Both always work with RAM bank 0, whatever `BANK` says, and they see the real RA
 
 ## Where to put the buffer
 
-Bank 0 holds your BASIC program, from `$1C01` upwards. The variables are in bank 1 and do not concern us. Everything in bank 0 above the end of the program is free, and a short program ends far below `$4000`. So the listings in this book use `$4000` as the start of a buffer. That leaves 48 KiB up to the top of memory. If you write a program of more than about 9000 bytes, move the buffer up.
+Bank 0 holds your BASIC program, from `$4001` upwards (chapter 2 has the map). The variables are in bank 1 and do not concern us. Everything in bank 0 above the end of the program is free, and a short program ends far below `$8000`. So the listings in this book use `$8000` as the start of a buffer. That leaves 32 KiB up to the top of memory, and the program itself may grow to 16 KiB. If you write a longer program, move the buffer up.
 
 ## The file format
 
@@ -38,9 +38,9 @@ A picture file for this book is as simple as it can be:
 <!-- listing: 06-viewer.bas -->
 ```
 10 REM GETTING PICTURES INTO VRAM: A PICTURE VIEWER
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 GOSUB 9000:P=16000
-40 BF=DEC("4000"):REM A BUFFER IN CPU RAM, BANK 0
+40 BF=DEC("8000"):REM A BUFFER IN CPU RAM, BANK 0
 50 BLOAD "DUNGEON",B0,P(BF)
 60 BANK 0:W=PEEK(BF):H=PEEK(BF+1):BANK 15
 70 RTV BF+2,P,W*H
@@ -96,9 +96,9 @@ We have 41536 bytes of VRAM that are not displayed. We can keep pictures there, 
 <!-- listing: 06-title.bas -->
 ```
 10 REM GETTING PICTURES INTO VRAM: A SMALL PICTURE, PARKED OFF SCREEN
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 GOSUB 9000:P=16000
-40 BF=DEC("4000"):SH=32000:REM BUFFER IN RAM, STORE IN VRAM
+40 BF=DEC("8000"):SH=32000:REM BUFFER IN RAM, STORE IN VRAM
 50 BLOAD "TITLE",B0,P(BF)
 60 BANK 0:W=PEEK(BF):H=PEEK(BF+1):BANK 15
 70 RTV BF+2,SH,W*H:REM THE PICTURE IS NOW IN VRAM, BUT NOT ON SCREEN
@@ -147,6 +147,47 @@ BSAVE "SHOT",B0,P(BF) TO P(BF+8000)
 
 `VCC address, vaddr, count` is a specialist for text mode. It copies character patterns of 8 bytes each from RAM into the character set, where each character has 16 bytes reserved, and skips the unused 8 each time. With it you can load a character set made for the 40-column screen: `VCC BF,DEC("2000"),0` replaces all 256 characters of the first set.
 
+## Packed pictures: RXV
+
+The picture of the viewer takes 8000 bytes on the disk and in RAM, and the dungeon is mostly large areas of one colour. A simple form of compression pays off: instead of a hundred equal bytes, store "100 times this byte". This is run-length coding, and the VDC-BASIC format for it is called VRL ("VDC run length"). `RXV` unpacks such a stream straight from RAM into VRAM:
+
+```
+RXV src, dst
+```
+
+A stream is a sequence of small tokens: literal bytes, runs of one value, skips that move on in VRAM without writing (which leave a picture's transparent parts and the gaps between rows alone), and a zero byte at the end. The exact layout is in the [VRL format](reference/vrl-format.md). You do not have to write streams by hand: `tools/vrl.py` encodes a file (`python3 tools/vrl.py encode picture.raw picture.vrl`), and it can also pack a rectangle with a row length, for a tile or a part of a picture.
+
+<!-- listing: 06-rxv.bas -->
+```
+10 REM GETTING PICTURES INTO VRAM: A PACKED PICTURE, UNPACKED BY THE CHIP'S HELPER
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
+30 GOSUB 9000:P=16000
+40 BF=DEC("8000"):REM A BUFFER IN CPU RAM, BANK 0
+50 BLOAD "DUNGEON.VRL",B0,P(BF):REM 2414 BYTES, NOT 8000
+60 T=TI:RXV BF+5,P:T=TI-T:REM THE STREAM STARTS 5 BYTES AFTER THE HEADER
+70 GETKEY K$
+80 RST 3:PRINT CHR$(147):PRINT "RXV:";T;"JIFFIES"
+90 BLOAD "DUNGEON",B0,P(BF)
+100 T=TI:RTV BF+2,P,8000:T=TI-T
+110 PRINT "RTV:";T;"JIFFIES":END
+9000 REM --- 160 X 100 PIXELS, 16 COLOURS. NEEDS 64 KIB VRAM ---
+9010 IF RGD(255)=0 THEN PRINT "THIS PROGRAM NEEDS 64 KIB VRAM":END
+9020 RST 1:RGO 28,16
+9030 T=(RGD(4)+1)*8+(RGD(5) AND 31):V=RGD(7)
+9040 RGW 9,1:RGW 4,T/2-1:RGW 6,100:RGW 7,V*4
+9050 VMF 0,15,16000:VMF 16000,0,8000
+9060 DISP 0:ATTR 16000:RGO 25,128
+9070 RETURN
+```
+
+![The packed dungeon, unpacked by RXV](img/06-rxv.png)
+
+The file `DUNGEON.VRL` is the dungeon picture of the viewer, packed: 2414 bytes instead of 8000. A VRL file starts with a header of 5 bytes (`"VR"`, a version, the unpacked length), so the stream begins at `BF+5`. That is why line 60 says `RXV BF+5,P`. `RXV` does not look at the header.
+
+Line 60 times it, and the last lines show the result after the picture: `RXV` needs 14 jiffies for the dungeon, and the `RTV` of the plain file 25. The disk has less to read, too. What `RXV` does with a long run is the interesting part. The chip's block fill writes a run of equal bytes by itself, while the CPU already reads the next token, so a big blue wall costs next to nothing. Short runs are cheaper to write by the CPU. The limit between the two is the *threshold* T, the byte at `$1C04` (default 14). You can change it with `POKE DEC("1C04"),T`; it changes the speed and never the result.
+
+Like `RTV`, `RXV` always reads bank 0, whatever `BANK` says. Nothing is checked: a stream without its end byte makes `RXV` read on into whatever follows. Two bytes at `$1C06` and `$1C07` tell where the stream ended, so that a second stream directly behind the first can be unpacked next. Inside a command list (chapter 12), an `RXV` is an entry of type 8.
+
 ## What we have so far
 
 | Command | Does |
@@ -155,5 +196,6 @@ BSAVE "SHOT",B0,P(BF) TO P(BF+8000)
 | `VTR vaddr, address, count` | copies from VRAM to RAM |
 | `SWP vaddr, address, count` | exchanges VRAM and RAM |
 | `VCC address, vaddr, count` | copies 8-byte character patterns into the character set |
+| `RXV address, vaddr` | unpacks a run-length coded (VRL) picture from RAM into VRAM (v3) |
 
 We can now fill VRAM with pictures. In the next part they start to move.

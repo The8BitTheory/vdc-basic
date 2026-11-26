@@ -68,7 +68,7 @@ In the listings the variable `P` holds the start of the picture, 16000. The byte
 <!-- listing: 05-chunky.bas -->
 ```
 10 REM SIXTEEN COLOURS PER PIXEL: THE 160 X 100 MODE
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 GOSUB 9000:P=16000:REM P = START OF THE PICTURE
 40 FOR C=1 TO 15:VMF P+C*5,C*17,5:NEXT:REM ONE LINE OF COLOUR BARS ...
 50 FOR R=1 TO 11:VMC P,P+R*80,80:NEXT:REM ... COPIED ELEVEN TIMES
@@ -100,6 +100,44 @@ Line 50 copies that row eleven times, one row further down each time. There is t
 
 Lines 60 to 90 plot a curve with the subroutine at line 500, which sets one pixel. It needs the pair of commands from chapter 2: `VMA` clears the half of the byte that belongs to our pixel and keeps the other, `VMO` puts the colour in. For an odd *x* that is the lower half; for an even *x* the upper half, and the colour has to be multiplied by 16 to get there.
 
+## Drawing without a plot routine
+
+The subroutine at line 500 is slow, and the chapter before this one already introduced the commands that replace it. They know the chunky mode too, as `VDM` mode 1:
+
+```
+VDM 1, base, stride
+```
+
+*Base* is the VRAM address of the picture, our `P`, and *stride* is 80 bytes per row. In mode 1 a byte is two pixels, the left one in the upper four bits, as above, and the colour *c* of `VDL`, `VDR` and `VDB` is a colour number from 0 to 15. There is no colour 2 for inverting here; that trick belongs to the bitmap.
+
+<!-- listing: 05-draw.bas -->
+```
+10 REM SIXTEEN COLOURS PER PIXEL: BOXES AND LINES WITHOUT A PLOT ROUTINE
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
+30 GOSUB 9000:P=16000:REM P = START OF THE PICTURE
+40 VDM 1,P,80:REM 4 BITS PER PIXEL, PICTURE AT P, 80 BYTES PER ROW
+50 FOR C=1 TO 15:VDB C*10,0,10,10,C:NEXT:REM THE COLOUR BARS
+60 VDR 0,12,160,88,15:REM A WHITE FRAME
+70 FOR X=0 TO 156 STEP 4:VDL 80,98,X+2,14,1+(X/11 AND 15):NEXT
+80 VDB 70,40,20,20,0:VDR 70,40,20,20,15:REM A BLACK BOX WITH A FRAME
+90 GETKEY K$
+100 RST 3:PRINT CHR$(147):END
+9000 REM --- 160 X 100 PIXELS, 16 COLOURS. NEEDS 64 KIB VRAM ---
+9010 IF RGD(255)=0 THEN PRINT "THIS PROGRAM NEEDS 64 KIB VRAM":END
+9020 RST 1:RGO 28,16
+9030 T=(RGD(4)+1)*8+(RGD(5) AND 31):V=RGD(7)
+9040 RGW 9,1:RGW 4,T/2-1:RGW 6,100:RGW 7,V*4
+9050 VMF 0,15,16000:VMF 16000,0,8000
+9060 DISP 0:ATTR 16000:RGO 25,128
+9070 RETURN
+```
+
+![Colour bars, a frame and a fan of lines](img/05-draw.png)
+
+Line 50 draws fifteen colour bars with `VDB`, each 10 pixels wide and 10 high. Line 60 is a frame around the rest of the screen, line 70 a fan of lines with one colour each, and line 80 a black box with a frame, on top of the lines.
+
+Coordinates are pixels now: 0 to 159 across and 0 to 99 down. A line that starts or ends on an odd *x* changes only one half of a byte, and the commands take care of it by reading the byte and writing it back; whole bytes in the middle of a flat line or of a box go out in one block fill. The picture is made of bytes, as always, and the chip copes with that.
+
 ## Why this mode
 
 It may seem odd to give up three quarters of the resolution on purpose. Here is what we get in return.
@@ -121,7 +159,8 @@ The 640 × 200 mode keeps its place: for a still picture, or for text on a plain
 | `GOSUB 9000` | switches to the 160 × 100 mode (our subroutine) |
 | `VMW P+Y*80+X/2, L*16+R` | sets the pixel pair at an even *x* to colours *L* and *R* |
 | `VMF address, C*17, count` | a run of pixels in colour *C* |
+| `VDM 1,P,80`, then `VDL`, `VDR`, `VDB` | lines, frames and boxes in colour 0-15, in pixel coordinates |
 
-We have a canvas, and plotting on it is as slow as ever. Time to bring in pictures that were drawn somewhere else.
+We have a canvas, and for lines and boxes there is a fast way to draw on it. Time to bring in pictures that were drawn somewhere else.
 
 [Next: Getting pictures into VRAM](06-getting-pictures-in.md)

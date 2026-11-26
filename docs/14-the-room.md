@@ -24,9 +24,10 @@ First the memory, as chapter 13 recommends.
 
 | RAM, bank 0 | Content | Name |
 |---|---|---|
-| `$4000` | buffer for loading | `BF` |
-| `$5000` | the command list that draws the room | `RL` |
-| `$6000` | the lists of the two sprites | `L(0)`, `L(1)` |
+| `$4001`- | the BASIC program | |
+| `$8000` | buffer for loading | `BF` |
+| `$A000` | the command list that draws the room | `RL` |
+| `$A800` | the lists of the two sprites | `L(0)`, `L(1)` |
 
 The idea that holds it together is the store at `BG`. It always contains the room as it currently is, with its remaining puddles and its status line, and without the goblin. Every frame is made in the same way: copy the store to the hidden page, draw the goblin on top, flip. Whatever changes in the room is changed in the store, once, and is on the screen from the next frame on.
 
@@ -35,9 +36,9 @@ The idea that holds it together is the store at `BG`. It always contains the roo
 <!-- listing: 14-room.bas -->
 ```
 10 REM THE ROOM: A GOBLIN MOPS UP PUDDLES. KEYS I J K L, X TO END
-20 BLOAD "VDCBASIC2H",B0:SYS DEC("1300")
+20 IF PEEK(46)<>64 THEN PRINT "RUN"CHR$(34)"BOOT"CHR$(34)" FIRST":END
 30 GOSUB 9000:PG(0)=16000:PG(1)=24000:BG=32000
-40 BF=DEC("4000"):SH=40000:FT=48000
+40 BF=DEC("8000"):SH=40000:FT=48000
 50 BLOAD "FONT",B0,P(BF):RTV BF+3,FT,1728:VCS FT,3,6
 60 VMP PG(0)+45*80+22,"ONE MOMENT..."
 70 BLOAD "TILES",B0,P(BF):RTV BF+2,SH,1024
@@ -71,7 +72,7 @@ The idea that holds it together is the store at `BG`. It always contains the roo
 430 DATA "1070007001"
 440 DATA "1111111111"
 1000 REM --- TWO SPRITES: LISTS AT L(0), L(1) IN RAM, DATA AT S(0), S(1) IN VRAM ---
-1010 A=DEC("6000"):VA=42000
+1010 A=DEC("A800"):VA=42000
 1020 FOR I=0 TO 1
 1030 : BLOAD ("GOBLIN"+CHR$(48+I)),B0,P(A)
 1040 : BANK 0:LL=PEEK(A+2)+256*PEEK(A+3):DL=PEEK(A+4)+256*PEEK(A+5):BANK 15
@@ -79,7 +80,7 @@ The idea that holds it together is the store at `BG`. It always contains the roo
 1060 : A=A+6+LL:VA=VA+DL
 1070 NEXT:RETURN
 2000 REM --- READ THE MAP INTO M(), WRITE THE COMMAND LIST FOR THE ROOM ---
-2010 RL=DEC("5000"):A=RL:N=0:BANK 0
+2010 RL=DEC("A000"):A=RL:N=0:BANK 0
 2020 FOR R=0 TO 4:READ M$
 2030 : FOR C=0 TO 9:T=VAL(MID$(M$,C+1,1)):M(C,R)=T:IF T=7 THEN N=N+1
 2040 : POKE A,2:A=A+1
@@ -106,7 +107,7 @@ The idea that holds it together is the store at `BG`. It always contains the roo
 
 ### Getting ready: lines 20 to 110
 
-Line 30 switches to the 160 × 100 mode (the subroutine at 9000, unchanged since chapter 5) and names the two pages and the store.
+Line 20 checks that `BOOT` has installed VDC-BASIC. Line 30 switches to the 160 × 100 mode (the subroutine at 9000, unchanged since chapter 5) and names the two pages and the store.
 
 Lines 50 and 60 load the font first and use it at once to print a message on the visible page, because the rest of the preparation takes a few seconds.
 
@@ -157,7 +158,7 @@ Some things to try with this program, roughly in order of effort:
 - Let the water move: tiles 3 to 6 are four phases of a water surface. Poke a different source address into the list entries of the water tiles and run the list again (chapter 12).
 - Add a second figure that moves by itself. It is one more `VMS` per frame.
 - Save the room list to disk and load rooms as files.
-- Put `FAST` in line 20.
+- Put `FAST` in a line 25 and `SLOW` before the program ends.
 
 The graphics in this book come from a larger program built with the same commands: a first-person dungeon crawler written for the Dungeon Crawler Jam 2025, in the repository `dungeoncrawlerjam2025`. Its view is put together from wall pieces that are blitted from sheets with `VMC`, and all its text is printed with `VMP`. After this chapter you will be able to read it.
 
