@@ -47,6 +47,7 @@
 ;               vms: command 3 = source skip (read position n bytes on, nothing written)
 ;               vdm, vdl, vdr, vdb: drawing in bitmap (1 bpp) and chunky (4 bpp), tokens $fe42, $fe3e-$fe40 (P2c)
 ;               vcl: command 9 = vms with the list in bank 1 (16 KB common RAM during the entry, P2d)
+;               vcl: command 10 = continue the list at an address in bank 0 (3 bytes, P2e)
 
 ; TODO    disp, attr and crsr should accept values <0 and >65535!
 !macro message {!pet "vdc basic v3 installed"}
@@ -1339,7 +1340,8 @@ vcs
 ;  7: vmw with 4 parameters (vaddr, byte, reps, step)
 ;  8: rxv with 2 parameters (src, dst)
 ;  9: vms with 3 parameters, list in bank 1 (P2d)
-; 10-11: reserved
+; 10: continue the list at address (word, bank 0) (P2e)
+; 11: reserved
 ; 12: vms with 3 parameters
 ; 13: syn: n, then n pairs of register, value (n = 0: just wait for end of text window)
 ; ff: sleep with 1 parameter (jiffies to sleep)
@@ -1428,6 +1430,16 @@ vcl
     bcc +
     beq .vcl_syn            ; 13 has a variable length
     jmp .vcl_handle_unknown
++   cmp #10                 ; 10, address: the list continues at the address (bank 0, P2e)
+    bne +
+    iny                     ; offset_1 = 0, Y = 0
+    lda (arg_address),y     ; low byte
+    tax
+    iny
+    lda (arg_address),y     ; high byte
+    sta arg_address + 1
+    stx arg_address
+    jmp .vcl_next_command   ; adds offset_1 = 0
 +   sta vcl_command_id
     inc offset_1
 
@@ -2833,7 +2845,7 @@ vcl_saved_cr        !byte 0     ; memory configuration at VCL entry
 vms_count_hi        !byte 0     ; VMS: number of commands, high byte
 vms_saved_cr        !byte 0     ; VMS: memory configuration of the caller
 vcl_saved_rcr       !byte 0     ; VCL 9: $d506 of the caller
-vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,3,5,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8 = rxv, 9 = vms (bank 1), 10-11 not implemented, 12 = vms. 13 = syn is handled separately (variable length)
+vcl_parameter_bytes !byte 0,5,9,11,5,9,3,7,3,5,0,0,5    ;first byte is dummy-byte. values -1 because of end-loop check (bne). 8 = rxv, 9 = vms (bank 1), 10 = jump (handled separately), 11 not implemented, 12 = vms. 13 = syn is handled separately (variable length)
 
 vms_block_source    !word 0;
 vmp_bank            !byte 0

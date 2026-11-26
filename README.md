@@ -132,7 +132,7 @@ With v3 the compiled program must use runtime image 2, which loads at `$4001`, a
 ## Known limits
 
 - `DISP`, `ATTR` and `CRSR` accept 0–65535 only; negative values are not wrapped.
-- `VCL` entry types 10–11 are reserved and not implemented (type 8 is `RXV` and type 9 `VMS` with the list in bank 1 since v3; the former plan for `VMO`/`VMA` entries is dropped), as is the "sleep" entry mentioned in the source comments.
+- `VCL` entry type 11 is reserved and not implemented (type 8 is `RXV`, type 9 `VMS` with the list in bank 1 and type 10 a jump to another address since v3; the former plan for `VMO`/`VMA` entries is dropped), as is the "sleep" entry mentioned in the source comments.
 - `RXV` does not check its stream: a stream without end token, a stream in `$D000`–`$DFFF` or `$FF00`–`$FF04`, or `src` pointing at the file header instead of the stream give undefined results.
 - Parameters are checked for their range and for nothing else: no clipping, no check that a target lies inside the picture. This holds for the drawing commands too: an x beyond the row continues in the next row, addresses wrap from 65535 to 0.
 - `VDL`/`VDR`/`VDB` have no XOR mode in chunky mode (`VDM 1`): there `c` is the colour 0–15. In bitmap mode `c` = 2 inverts.
