@@ -27,6 +27,16 @@ CLOCK = 985248
 
 
 def build(work, prog, compile_, runtime):
+    if prog.endswith('.s'):            # a machine code program (vtasm.s): no BOOT, no VDC-BASIC
+        base = os.path.splitext(prog)[0]
+        subprocess.run(['cl65', '-t', 'none', '-C', base + '.cfg', '-o', os.path.join(work, 'boot.prg'), prog],
+                       check=True)
+        if os.path.exists(base + '.o'):
+            os.remove(base + '.o')
+        disk = os.path.join(work, 'vertrot.d81')
+        subprocess.run(['c1541', '-format', 'vertrot,01', 'd81', disk, '-write', os.path.join(work, 'boot.prg'),
+                        os.path.basename(base)], check=True, stdout=subprocess.DEVNULL)
+        return disk
     tok = os.path.join(ROOT, 'test', 'bastok.py')
     boot = os.path.join(work, 'boot.bas')
     with open(os.path.join(ROOT, 'boot', 'boot.bas')) as f, open(boot, 'w') as o:
@@ -83,7 +93,7 @@ def main():
     ap.add_argument('--timeout', type=int, default=3600)
     args = ap.parse_args()
     port = vm.choose_port(args.port)
-    mode = 'blitz' if args.compile else 'interp'
+    mode = 'asm' if args.prog.endswith('.s') else 'blitz' if args.compile else 'interp'
     name = os.path.splitext(os.path.basename(args.prog))[0]
     expect = [(dp, ref.page_pixels(vd.ram, dp)) for _, dp, vd in ref.frames(args.prog)]
     work = tempfile.mkdtemp(prefix='vertrot-')

@@ -18,7 +18,7 @@ PALETTE = [(0, 0, 0), (85, 85, 85), (0, 0, 170), (85, 85, 255), (0, 170, 0), (85
 
 def path(bas):
     for line in open(bas, encoding='latin-1'):
-        m = re.match(r'\s*\d+\s+DATA\s*"([A-Z]*)"', line)
+        m = re.search(r'DATA\s*"([A-Z]+)"', line)
         if m:
             return m.group(1)
 

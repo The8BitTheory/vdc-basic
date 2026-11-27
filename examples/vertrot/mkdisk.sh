@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build vertrot.d81: BOOT (starts VERTROT5C), VDCBASIC3, VTCLIP, VTLINE, VTVIEW, the listings tokenised for $4001
 # (VERTROT .. VERTROT5) and compiled with Blitz! improved runtime (VERTROTC .. VERTROT5C).
+# VTASM is the machine code program alone (no VDC-BASIC): after a reset LOAD"VTASM",8 and RUN.
 # The .prg files are written next to the sources as well.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); R=$H/../..; W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
@@ -17,5 +18,7 @@ for p in vertrot vertrot2 vertrot3 vertrot4 vertrot5; do
     grep -q "errors: 0" "$W/b/screen.txt"; cp "$W/b/c.prg" "$H/${p}c.prg"; rm -rf "$W/b"
     set -- "$@" -write "$H/$p.prg" "$p" -write "$H/${p}c.prg" "${p}c"
 done
+cl65 -t none -C "$H/vtasm.cfg" -o "$H/vtasm.prg" "$H/vtasm.s"; rm -f "$H/vtasm.o"
+set -- "$@" -write "$H/vtasm.prg" vtasm
 rm -f "$H/vertrot.d81"
 c1541 -format "vertrot,01" d81 "$H/vertrot.d81" "$@" -dir
