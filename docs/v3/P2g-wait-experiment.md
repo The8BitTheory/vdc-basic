@@ -170,7 +170,7 @@ Evaluation of the hardware runs: if `p2f` (all waits) is wrong, it is not due to
 Run with `test/hw/vdc-hw-tests.d81` (menu 2), machine in FAST mode; raw data and evaluation in `test/bench/waits/results/c128-20261127/` (`res0–5.prg`, `report.md`, `hw.json`).
 
 - **Answers to the questions of 4.5:** (1)/(2) Same pattern as Z64K: `A`, `C`, `AC/2` and `AC/8` are wrong in every repetition at every length and configuration; all other variants of the set (`p2f`, `full`, `AC`, `p2f-AC`, `S-AC`, `p2fS`, `p2fS-AC`, `R-ACt`, `RS-ACt`) are correct. The bandwidth picture of the display holds. (4) Data retention: `p2f` (all waits) is correct in all six configurations including R36 = 0, no decay seen in this run.
-- **Deviation:** `ACt` at 1 MHz, R36 = 0, L = 16 was wrong in 1 of 3 repetitions (`F1`); Z64K had none. Single event, to be repeated before `ACt`/`R-ACt` (K3) count as verified.
+- **Deviation:** `ACt` at 1 MHz, R36 = 0, L = 16 was wrong in 1 of 3 repetitions (`F1`); Z64K had none. Single event. Repeat run (`test/hw/vdc-act-repeat.d81`, set `hwact`, `test/bench/waits/results/c128-20261127-act/`): `ACt`, `R-ACt` and `AC` were correct in 18 of 18 repetitions per cell, the `F1` did not recur (cause of the one-off unknown).
 - **Durations:** the median times to ready on hardware are in `report.md`; they were not compared line by line with Z64K.
 
 ## 7. Files, raw data
