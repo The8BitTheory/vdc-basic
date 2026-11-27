@@ -189,6 +189,8 @@ def case_set(name):
     """(Konfigurationen [(MHz, R36)], Faelle [(Art, Variante/Op, L, Flags)])"""
     if name == 'hw':            # echte Hardware: Auswahl, alle sechs Konfigurationen (Lader: RES0..RES5)
         return [(m, r) for m in (2, 1) for r in (0, 1, 5)], cases_for(only=HW_VARIANTS, dur=True)
+    if name == 'hwact':         # Wiederholung des ACt-Ausreissers (1 MHz, R36 = 0): sechs gleiche Konfigurationen = 18 Wiederholungen
+        return [(1, 0)] * 6, cases_for(only=('ACt', 'R-ACt', 'AC'))
     if name in ('full', 'short'):
         return [(m, r) for m in (1, 2) for r in (5, 1, 0)], cases_for(short=(name == 'short'))
     if name.startswith('dz') and 'r' in name:             # dz...: nur Dauer-Faelle
