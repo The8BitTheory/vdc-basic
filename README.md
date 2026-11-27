@@ -15,7 +15,7 @@ The guide, its listings and the reference describe v3. Every listing of the guid
 | Bank 0 | Use |
 |---|---|
 | `$1300`–`$1BFF` | free (e.g. for lists that must lie below `$4000`) |
-| `$1C00`–`$1C0F` | header with fixed addresses: `$1C00` `JMP install` (`SYS 7168`), `$1C03` version (`$30` = v3.0), `$1C04` block fill threshold T of `RXV` (default 14, provisional), `$1C06`/`$1C07` address behind the end token of the last `RXV` stream, `$1C08`/`$1C09` VRAM address behind the last byte `RXV` wrote or skipped, the rest reserved |
+| `$1C00`–`$1C0F` | header with fixed addresses: `$1C00` `JMP install` (`SYS 7168`), `$1C03` version (`$30` = v3.0), `$1C04` block fill threshold T of `RXV` (default 2, measured on real hardware), `$1C06`/`$1C07` address behind the end token of the last `RXV` stream, `$1C08`/`$1C09` VRAM address behind the last byte `RXV` wrote or skipped, the rest reserved |
 | `$1C10`–`$2EE9` | code and variables of VDC-BASIC; up to `$3FFF` is reserved for it |
 | `$4000` | 0 (the byte before the program text) |
 | `$4001`– | BASIC program, or a Blitz! program with runtime image 2 |

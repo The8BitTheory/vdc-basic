@@ -62,7 +62,7 @@
   !source "./src/vdclib.a"  ; macros and code parts
 
 ;build params
-RXV_T_DEFAULT = 14      ; vorläufig, siehe docs/v3/P2b-rxv.md 5
+RXV_T_DEFAULT = 2       ; real hardware (P0, 2026-11-27, 2 MHz/R36 = 0), docs/v3/P2b-rxv.md 5
 RXV_TRACK_DST = 0       ; 1: RXV tracks the VRAM address in software instead of reading R18/R19 (docs/v3/P2b-rxv.md 3.4)
 
 ; zp

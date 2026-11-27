@@ -169,7 +169,7 @@ Cost: a VCL entry costs about 270 CPU cycles up to the call (reading 5 bytes ≈
 ## 5. Threshold T (`$1C04`)
 
 - Documented, patchable byte (review-notes D.8): `POKE DEC("1C04"),T` in BASIC (`BANK 15` suffices, the cell lies below `$4000`), likewise in a compilate. Affects `RXV` and the middle parts of `VDL`/`VDR`/`VDB` (P2c).
-- Default value in the binary: **14** (placeholder from the cost model of P1, `vrl.py threshold()` with the placeholders). Replace with T from the P0 measurement on **real hardware** (`test/bench/results/c128-*.json`, `engine.T`); T from VICE is not transferable (P0, section 2). In the source as `RXV_T_DEFAULT = 14 ; vorläufig, siehe docs/v3/P2b-rxv.md 5`.
+- Default value in the binary: **2** (since 2026-11-27; before: 14, a placeholder from the cost model of P1). Source: P0 measurement on real hardware, `test/bench/results/c128-20261127.json`, T = 2 for 2 MHz/R36 = 0 (engine) and 1 MHz/R36 = 0; 6 at R36 = 5. Confirmed by the animation benchmark (`test/bench/anim/results/c128-20261127.md`): with T = 2 `RXV` is equal or up to 10 % faster than with 14. T from VICE is not transferable (P0, section 2). In the source as `RXV_T_DEFAULT`.
 - No fake register via `RGW`: `RGW` writes VDC registers; a pseudo register 253 would be special handling in the fast path. `POKE` suffices.
 
 ## 6. Cycles (CPU cycles, VDC immediately ready)
