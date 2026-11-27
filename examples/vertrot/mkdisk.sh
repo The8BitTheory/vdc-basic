@@ -3,7 +3,7 @@
 # (VERTROT .. VERTROT5) and compiled with Blitz! improved runtime (VERTROTC .. VERTROT5C).
 # VTASM is the machine code program alone (no VDC-BASIC): after a reset LOAD"VTASM",8 and RUN.
 # VIC-II: VBOOT (starts VICC), VIC (vic.bas tokenised for $4001), VICC (compiled), VICSHOW; VICASM alone
-# (after a reset LOAD"VICASM",8 and RUN).
+# (after a reset LOAD"VICASM",8 and RUN). VTFIX / VICFIX: the same in fixed point (fixcore.inc), alone.
 # The .prg files are written next to the sources as well.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); R=$H/../..; W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
@@ -28,8 +28,8 @@ python3 "$R/test/bastok.py" --start 0x4001 "$H/vic.bas" "$H/vic.prg"
 python3 "$R/test/bastok.py" "$H/vic.bas" "$W/src.prg"
 "$NODE" "$BLITZC" "$W/src.prg" "$W/b" --name vicc --runtime improved >/dev/null
 grep -q "errors: 0" "$W/b/screen.txt"; cp "$W/b/c.prg" "$H/vicc.prg"; rm -rf "$W/b"
-for m in vicshow vicasm; do cl65 -t none -C "$H/$m.cfg" -o "$H/$m.prg" "$H/$m.s"; rm -f "$H/$m.o"; done
+for m in vicshow vicasm vtfix vicfix; do cl65 -t none -C "$H/$m.cfg" -o "$H/$m.prg" "$H/$m.s"; rm -f "$H/$m.o"; done
 set -- "$@" -write "$H/vboot.prg" vboot -write "$H/vic.prg" vic -write "$H/vicc.prg" vicc -write "$H/vicshow.prg" vicshow \
-    -write "$H/vicasm.prg" vicasm
+    -write "$H/vicasm.prg" vicasm -write "$H/vtfix.prg" vtfix -write "$H/vicfix.prg" vicfix
 rm -f "$H/vertrot.d81"
 c1541 -format "vertrot,01" d81 "$H/vertrot.d81" "$@" -dir
