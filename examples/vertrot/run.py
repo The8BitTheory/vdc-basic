@@ -57,14 +57,14 @@ def build(work, prog, compile_, runtime):
                     '-write', os.path.join(work, 'boot.prg'), 'boot',
                     '-write', os.path.join(ROOT, 'vdcbasic3.bin'), 'vdcbasic3',
                     '-write', prg, 'vertrot'], check=True, stdout=subprocess.DEVNULL)
-    if 'VTCLIP' in open(prog).read():
-        subprocess.run(['cl65', '-t', 'none', '-C', os.path.join(HERE, 'vtclip.cfg'), '-o',
-                        os.path.join(work, 'vtclip.prg'), os.path.join(HERE, 'vtclip.s')],
-                       check=True)
-        if os.path.exists(os.path.join(HERE, 'vtclip.o')):
-            os.remove(os.path.join(HERE, 'vtclip.o'))
-        subprocess.run(['c1541', disk, '-write', os.path.join(work, 'vtclip.prg'), 'vtclip'],
-                       check=True, stdout=subprocess.DEVNULL)
+    for ml in ('vtclip', 'vtline'):        # machine code the listing loads
+        if ml.upper() in open(prog).read():
+            out = os.path.join(work, ml + '.prg')
+            subprocess.run(['cl65', '-t', 'none', '-C', os.path.join(HERE, 'vtclip.cfg'), '-o', out,
+                            os.path.join(HERE, ml + '.s')], check=True)
+            if os.path.exists(os.path.join(HERE, ml + '.o')):
+                os.remove(os.path.join(HERE, ml + '.o'))
+            subprocess.run(['c1541', disk, '-write', out, ml], check=True, stdout=subprocess.DEVNULL)
     return disk
 
 
