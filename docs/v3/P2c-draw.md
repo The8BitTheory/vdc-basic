@@ -1,385 +1,385 @@
-# P2c: `VDM`, `VDL`, `VDR`, `VDB` – Linie, Rechteck, Box in Bitmap (1 bpp) und chunky (4 bpp)
+# P2c: `VDM`, `VDL`, `VDR`, `VDB` – line, rectangle, box in bitmap (1 bpp) and chunky (4 bpp)
 
-Stand: 2026-11-25. Detailspezifikation zu Schritt P2c aus `dungeonboringengine/docs/plan-0.2.md` (Abschnitt 7.3–7.5). Voraussetzung: P2a (Kopf, Tokens), P2b (Schwelle T bei `$1C04`, Lauf-Routine). Umsetzung: Opus (Assembler), Sonnet (Referenzmodell, Tests). Review: Opus.
+As of: 2026-11-25. Detailed specification for step P2c from `dungeonboringengine/docs/plan-0.2.md` (section 7.3–7.5). Prerequisite: P2a (head, tokens), P2b (threshold T at `$1C04`, run routine). Implementation: Opus (assembler), Sonnet (reference model, tests). Review: Opus.
 
-## 1. Befehle
+## 1. Commands
 
-| Befehl | Token | Syntax | Wirkung |
+| Command | Token | Syntax | Effect |
 |---|---|---|---|
-| `VDM` | `$FE42` | `VDM modus,basis,stride` | Zeichenfläche festlegen (bleibt bis zum nächsten `VDM`) |
-| `VDL` | `$FE3E` | `VDL x1,y1,x2,y2,c` | Linie, beide Endpunkte eingeschlossen |
-| `VDR` | `$FE3F` | `VDR x,y,w,h,c` | Rechteck, nur Rand (w × h Pixel außen) |
-| `VDB` | `$FE40` | `VDB x,y,w,h,c` | Rechteck, gefüllt |
+| `VDM` | `$FE42` | `VDM mode,base,stride` | set the drawing surface (stays until the next `VDM`) |
+| `VDL` | `$FE3E` | `VDL x1,y1,x2,y2,c` | line, both endpoints included |
+| `VDR` | `$FE3F` | `VDR x,y,w,h,c` | rectangle, outline only (w × h pixels outside) |
+| `VDB` | `$FE40` | `VDB x,y,w,h,c` | rectangle, filled |
 
-Die Tokens `$FE3E–$FE40` stehen seit P2b mit einem Syntax-Stub in der Tabelle (P2a, 2.2); P2c ersetzt die Stubs. Einträge in `BASIC V7.0 VDC.txt`: `VDL;fe3e;`, `VDR;fe3f;`, `VDB;fe40;`, `VDM;fe42;`.
+The tokens `$FE3E–$FE40` have been in the table with a syntax stub since P2b (P2a, 2.2); P2c replaces the stubs. Entries in `BASIC V7.0 VDC.txt`: `VDL;fe3e;`, `VDR;fe3f;`, `VDB;fe40;`, `VDM;fe42;`.
 
-### 1.1 `VDM modus,basis,stride`
+### 1.1 `VDM mode,base,stride`
 
-| Parameter | Bereich | Bedeutung |
+| Parameter | Range | Meaning |
 |---|---|---|
-| `modus` | 0, 1 | 0 = Bitmap 1 bpp, 1 = chunky 4 bpp |
-| `basis` | 0–65535 | VRAM-Adresse des Bytes mit Pixel (0,0) |
-| `stride` | 1–65535 | Bytes je Pixelzeile |
+| `mode` | 0, 1 | 0 = bitmap 1 bpp, 1 = chunky 4 bpp |
+| `base` | 0–65535 | VRAM address of the byte with pixel (0,0) |
+| `stride` | 1–65535 | bytes per pixel row |
 
-Andere Werte: `?ILLEGAL QUANTITY ERROR` (14). Zustand nach der Installation: Modus 0, Basis 0, Stride 80. Der Zustand liegt im Datenteil (5 Byte: Modus, Basis, Stride), nicht im Kopf.
+Other values: `?ILLEGAL QUANTITY ERROR` (14). State after installation: mode 0, base 0, stride 80. The state is in the data part (5 bytes: mode, base, stride), not in the head.
 
-### 1.2 Pixel und Adressen
+### 1.2 Pixels and addresses
 
-Byteadresse eines Pixels: `basis + y · stride + (x >> 3)` (Modus 0) bzw. `basis + y · stride + (x >> 1)` (Modus 1), alles modulo 65536.
+Byte address of a pixel: `base + y · stride + (x >> 3)` (mode 0) or `base + y · stride + (x >> 1)` (mode 1), everything modulo 65536.
 
-| Modus | Pixel im Byte |
+| Mode | Pixel in the byte |
 |---|---|
-| 0 | Bit `7 − (x AND 7)`: Bit 7 = linkes Pixel, 1 = Vordergrund |
-| 1 | x gerade → **High-Nibble** (Bits 7–4), x ungerade → Low-Nibble |
+| 0 | bit `7 − (x AND 7)`: bit 7 = left pixel, 1 = foreground |
+| 1 | x even → **high nibble** (bits 7–4), x odd → low nibble |
 
-**Begründung der Nibble-Reihenfolge (Modus 1):**
+**Rationale for the nibble order (mode 1):**
 
-- Chunky heißt: Bitmap fest `$0F`, Pixel im Attribut-RAM (Plan 2, Crawl, Guide Kapitel 5). Die linken 4 Bildpunkte eines Bytes haben im Bitmap-Byte `$0F` Bits = 0, die rechten Bits = 1.
-- Im Bitmap-Modus mit Attributen färbt der VDC 0-Bits mit dem High-Nibble und 1-Bits mit dem Low-Nibble des Attributs. Beleg: VICE `src/vdc/vdc-draw.c`, `draw_std_bitmap`: Tabellenindex `(attr & 0xF0) + ((attr & 0x0F) << 8)` gegenüber `regs[26] << 4` im Monochrom-Fall; Reg 26 hat Vordergrund in Bits 7–4 und Hintergrund in 3–0, also landet das Attribut-Low-Nibble im Vordergrund-Platz (1-Bits), das High-Nibble im Hintergrund-Platz (0-Bits).
-- Daraus: linkes Pixel = High-Nibble. Das stimmt mit dem Guide („The upper four bits are the left pixel“, Kapitel 5, mit Screenshots getestet), mit `dungeonboringengine/tools/crawlsprites.py` (`c % 2 == 0` → `>> 4`) und mit `VMS` Typ 8 („lower nybble … rightmost pixel“) überein.
-- Das gilt nur für Bitmap-Byte `$0F` und Reg 24 Bit 6 = 0 (kein Reverse). `VDM` prüft das nicht: Modus 1 legt nur die Zuordnung x ↔ Nibble fest.
+- Chunky means: bitmap fixed at `$0F`, pixels in attribute RAM (plan 2, Crawl, guide chapter 5). The left 4 pixels of a byte have bits = 0 in the bitmap byte `$0F`, the right ones bits = 1.
+- In bitmap mode with attributes the VDC colors 0 bits with the high nibble and 1 bits with the low nibble of the attribute. Evidence: VICE `src/vdc/vdc-draw.c`, `draw_std_bitmap`: table index `(attr & 0xF0) + ((attr & 0x0F) << 8)` versus `regs[26] << 4` in the monochrome case; reg 26 has foreground in bits 7–4 and background in 3–0, so the attribute low nibble ends up in the foreground slot (1 bits), the high nibble in the background slot (0 bits).
+- From this: left pixel = high nibble. This agrees with the guide ("The upper four bits are the left pixel", chapter 5, tested with screenshots), with `dungeonboringengine/tools/crawlsprites.py` (`c % 2 == 0` → `>> 4`) and with `VMS` type 8 ("lower nybble … rightmost pixel").
+- This holds only for bitmap byte `$0F` and reg 24 bit 6 = 0 (no reverse). `VDM` does not check this: mode 1 only fixes the mapping x ↔ nibble.
 
-### 1.3 Farbe und Zeichenart `c`
+### 1.3 Color and drawing mode `c`
 
-| Modus | `c` | Wirkung |
+| Mode | `c` | Effect |
 |---|---|---|
-| 0 | 0 | Pixel löschen (Bit = 0) |
-| 0 | 1 | Pixel setzen (Bit = 1) |
-| 0 | 2 | Pixel umkehren (XOR) |
-| 1 | 0–15 | Nibble = c |
+| 0 | 0 | clear pixel (bit = 0) |
+| 0 | 1 | set pixel (bit = 1) |
+| 0 | 2 | invert pixel (XOR) |
+| 1 | 0–15 | nibble = c |
 
-Andere Werte: Fehler 14. Kein XOR im Modus 1 (bei Farben selten sinnvoll, würde den schnellen Pfad für Mittelteile verbieten).
+Other values: error 14. No XOR in mode 1 (rarely useful with colors, would rule out the fast path for middle parts).
 
-**Jedes Pixel wird genau einmal bearbeitet** – auch an den Ecken von `VDR` und bei Linien. Damit ist zweimal dasselbe mit c = 2 wieder das Ausgangsbild.
+**Every pixel is processed exactly once** – also at the corners of `VDR` and for lines. Thus doing the same thing twice with c = 2 gives the original image again.
 
-### 1.4 Geometrie und Grenzen (kein Clipping)
+### 1.4 Geometry and limits (no clipping)
 
-- Es gibt **kein Clipping**, wie bei allen VDC-BASIC-Befehlen. Ein x jenseits der Zeilenbreite landet in der nächsten Zeile, Adressen laufen über `$FFFF` nach `$0000` um. Begründung: Tempo und Größe; die Engine zeichnet nur in ihren Viewport. Steht in der Referenz.
-- `VDL`: alle vier Koordinaten 0–16383, sonst Fehler 14 (der Fehlerterm passt so in 16 Bit mit Vorzeichen, 4.3). Das deckt Bitmap 640 × 800 und chunky 160 × 400 reichlich ab.
-- `VDR`/`VDB`: x, y, w, h 0–65535 mit `x + w ≤ 65536` und `y + h ≤ 65536`, sonst Fehler 14. w = 0 oder h = 0: nichts zeichnen, kein Fehler.
-- Fehlende Parameter: Fehler 11.
+- There is **no clipping**, as with all VDC-BASIC commands. An x beyond the row width lands in the next row, addresses wrap from `$FFFF` to `$0000`. Rationale: speed and size; the engine only draws into its viewport. Stated in the reference.
+- `VDL`: all four coordinates 0–16383, otherwise error 14 (the error term then fits into 16 bits with sign, 4.3). This amply covers bitmap 640 × 800 and chunky 160 × 400.
+- `VDR`/`VDB`: x, y, w, h 0–65535 with `x + w ≤ 65536` and `y + h ≤ 65536`, otherwise error 14. w = 0 or h = 0: draw nothing, no error.
+- Missing parameters: error 11.
 
-## 2. Speicher, Konfiguration, IRQ
+## 2. Memory, configuration, IRQ
 
-- Die Zeichenbefehle lesen kein CPU-RAM außer dem eigenen Zustand; sie laufen in der Konfiguration von `execute_instruction` (`$FF00 = 0`, I/O ein, `io_on`), ohne `remember_mem_conf`. Der Code liegt unter `$4000` (P2a).
-- Zeropage: `arg1`–`arg6` (`$83–$8E`) für Parameter und Zwischenwerte, `$0A–$14` (`vcl_command_id`, `multi1`, `multi2`) für Multiplikation und Fehlerterm. Nichts davon muss über den Befehl hinaus erhalten bleiben. Datenteil: Zustand `VDM` (5 Byte), Puffer `draw_buf` (64 Byte) für XOR-Mittelteile.
-- IRQ: wie `RXV` (P2b, 3.6): I-Flag unverändert, keine Interruptroutine darf den VDC benutzen.
-- Reg 24 Bit 7 = 0 (Block fill) per Read-Modify-Write, nur wenn ein Mittelteil per Block fill geschrieben wird.
+- The drawing commands read no CPU RAM except their own state; they run in the configuration of `execute_instruction` (`$FF00 = 0`, I/O on, `io_on`), without `remember_mem_conf`. The code is below `$4000` (P2a).
+- Zero page: `arg1`–`arg6` (`$83–$8E`) for parameters and intermediate values, `$0A–$14` (`vcl_command_id`, `multi1`, `multi2`) for multiplication and error term. None of this has to be preserved beyond the command. Data part: `VDM` state (5 bytes), buffer `draw_buf` (64 bytes) for XOR middle parts.
+- IRQ: like `RXV` (P2b, 3.6): I flag unchanged, no interrupt routine may use the VDC.
+- Reg 24 bit 7 = 0 (block fill) via read-modify-write, only if a middle part is written via block fill.
 
-## 3. Grundoperationen (Assembler)
+## 3. Basic operations (assembler)
 
-| Routine | Eingang | Wirkung |
+| Routine | Input | Effect |
 |---|---|---|
-| `draw_addr` | x, y | Byteadresse nach 1.2: `y · stride` (16 × 16 → 16 Bit, Schiebe-Addier-Schleife über die Bits von y, höchstens 14 Runden), plus `basis`, plus `x >> 3` bzw. `x >> 1`; dazu Bitmaske bzw. Nibble-Seite |
-| `vdc_seek` | Adresse | Reg 18/19 schreiben (`AY_to_vdc_regs_18_19`) |
-| `pix_rmw` | Adresse, Maske | `vdc_seek`; Reg 31 lesen (Adresse +1); Byte ändern; `vdc_seek`; Reg 31 schreiben. Ändern: Modus 0 `ORA m` / `AND ~m` / `EOR m`; Modus 1 `(b AND keep) ORA (cc AND m)` mit `cc = c · 17` |
-| `vdc_run` | Wert, Länge L ≥ 1 (16 Bit), Reg 31 angewählt, Adresse gesetzt | L < T (`$1C04`): CPU-Schleife über Reg 31; sonst erstes Byte per Reg 31, Rest mit `vdc_do_YYAA_cycles` (Block fill). Dieselbe Entscheidung wie `RXV`; `RXV` kann seine eigene inline-Fassung behalten, `vdc_run` ist für die Zeichenbefehle |
-| `xor_run` | Länge m ≥ 1, Adresse gesetzt | in Stücken zu ≤ 64 Byte: Adresse merken, m Bytes über Reg 31 in `draw_buf` lesen, Adresse zurück, Bytes mit `EOR #$FF` schreiben |
+| `draw_addr` | x, y | byte address per 1.2: `y · stride` (16 × 16 → 16 bits, shift-and-add loop over the bits of y, at most 14 rounds), plus `base`, plus `x >> 3` or `x >> 1`; also bit mask or nibble side |
+| `vdc_seek` | address | write reg 18/19 (`AY_to_vdc_regs_18_19`) |
+| `pix_rmw` | address, mask | `vdc_seek`; read reg 31 (address +1); modify byte; `vdc_seek`; write reg 31. Modify: mode 0 `ORA m` / `AND ~m` / `EOR m`; mode 1 `(b AND keep) ORA (cc AND m)` with `cc = c · 17` |
+| `vdc_run` | value, length L ≥ 1 (16 bits), reg 31 selected, address set | L < T (`$1C04`): CPU loop via reg 31; otherwise first byte via reg 31, rest with `vdc_do_YYAA_cycles` (block fill). Same decision as `RXV`; `RXV` may keep its own inline version, `vdc_run` is for the drawing commands |
+| `xor_run` | length m ≥ 1, address set | in chunks of ≤ 64 bytes: remember address, read m bytes via reg 31 into `draw_buf`, address back, write bytes with `EOR #$FF` |
 
-VDC-Lesen: Nach dem Schreiben von Reg 18/19 liefert Reg 31 das Byte an der Adresse und erhöht die Adresse (wie `vram_AAYY_to_A` in v2h).
+VDC read: after writing reg 18/19, reg 31 returns the byte at the address and increments the address (like `vram_AAYY_to_A` in v2h).
 
-### 3.1 Waagerechte Spanne `span(x0, x1, zeile)` (x0 ≤ x1)
+### 3.1 Horizontal span `span(x0, x1, row)` (x0 ≤ x1)
 
-Modus 1 (chunky), Bytes `b0 = x0 >> 1`, `b1 = x1 >> 1`:
+Mode 1 (chunky), bytes `b0 = x0 >> 1`, `b1 = x1 >> 1`:
 
-| Fall | Ablauf |
+| Case | Flow |
 |---|---|
-| `b0 = b1`, x0 = x1 | ein Nibble: `pix_rmw` |
-| `b0 = b1`, x0 gerade, x1 = x0 + 1 | ein volles Byte: `vdc_seek`, Reg 31 = cc |
-| `b0 < b1` | `vdc_seek(b0)`; x0 ungerade → linker Rand: Reg 31 lesen, `vdc_seek(b0)`, Low-Nibble ersetzen, schreiben; Mittelteil `m = (Anzahl voller Bytes)` per `vdc_run(cc, m)` ohne neue Adresse; x1 gerade → rechter Rand bei der jetzt aktuellen Adresse `b1`: lesen, `vdc_seek(b1)`, High-Nibble ersetzen, schreiben |
+| `b0 = b1`, x0 = x1 | one nibble: `pix_rmw` |
+| `b0 = b1`, x0 even, x1 = x0 + 1 | one full byte: `vdc_seek`, reg 31 = cc |
+| `b0 < b1` | `vdc_seek(b0)`; x0 odd → left edge: read reg 31, `vdc_seek(b0)`, replace low nibble, write; middle part `m = (number of full bytes)` via `vdc_run(cc, m)` without a new address; x1 even → right edge at the now current address `b1`: read, `vdc_seek(b1)`, replace high nibble, write |
 
-Modus 0 (Bitmap), `b0 = x0 >> 3`, `b1 = x1 >> 3`, linke Maske `lm = $FF >> (x0 AND 7)`, rechte Maske `rm = ($FF << (7 − (x1 AND 7))) AND $FF`:
+Mode 0 (bitmap), `b0 = x0 >> 3`, `b1 = x1 >> 3`, left mask `lm = $FF >> (x0 AND 7)`, right mask `rm = ($FF << (7 − (x1 AND 7))) AND $FF`:
 
-| Fall | Ablauf |
+| Case | Flow |
 |---|---|
-| `b0 = b1` | ein Byte mit `lm AND rm`: `pix_rmw` |
-| `b0 < b1` | Rand links nur, wenn `lm ≠ $FF` (sonst zählt das Byte zum Mittelteil); Mittelteil: c = 1 → `vdc_run($FF, m)`, c = 0 → `vdc_run($00, m)`, c = 2 → `xor_run(m)`; Rand rechts nur, wenn `rm ≠ $FF` |
+| `b0 = b1` | one byte with `lm AND rm`: `pix_rmw` |
+| `b0 < b1` | left edge only if `lm ≠ $FF` (otherwise the byte belongs to the middle part); middle part: c = 1 → `vdc_run($FF, m)`, c = 0 → `vdc_run($00, m)`, c = 2 → `xor_run(m)`; right edge only if `rm ≠ $FF` |
 
-Adressen: höchstens drei `vdc_seek` je Spanne (Start, nach dem Lesen des linken Rands, nach dem Lesen des rechten Rands). m = 0 ist erlaubt (zwei Ränder nebeneinander).
+Addresses: at most three `vdc_seek` per span (start, after reading the left edge, after reading the right edge). m = 0 is allowed (two edges next to each other).
 
-### 3.2 Senkrechter Lauf `vrun(x, y0, y1)` (y0 ≤ y1)
+### 3.2 Vertical run `vrun(x, y0, y1)` (y0 ≤ y1)
 
-Adresse und Maske einmal mit `draw_addr`, dann je Zeile `pix_rmw` und Adresse + stride (16 Bit). Ein senkrechter Lauf berührt immer nur ein Bit bzw. Nibble je Byte; ein Block fill hilft hier nicht. Der Plan („Inkrement = stride“) ist damit umgesetzt: die Adresse wird nicht neu berechnet, nur weitergezählt.
+Address and mask once with `draw_addr`, then per row `pix_rmw` and address + stride (16 bits). A vertical run always touches only one bit or nibble per byte; a block fill does not help here. The plan ("increment = stride") is thereby implemented: the address is not recomputed, only advanced.
 
-### 3.3 `VDB` (gefüllt)
+### 3.3 `VDB` (filled)
 
-Ränder, Masken und m einmal aus x und w berechnen, dann für jede der h Zeilen: `vdc_seek(zeilenadresse)`, Ränder und Mittelteil wie 3.1, Zeilenadresse + stride. Bei vollen Bytes ohne Ränder (Modus 1 mit x und w gerade; Modus 0 mit x und w durch 8 teilbar, c ≠ 2) ist das je Zeile ein `vdc_seek` und ein `vdc_run` – derselbe Aufwand wie `VMF` mit Wiederholungen, ohne den BASIC-Parser je Zeile.
+Compute edges, masks and m once from x and w, then for each of the h rows: `vdc_seek(row address)`, edges and middle part as in 3.1, row address + stride. For full bytes without edges (mode 1 with x and w even; mode 0 with x and w divisible by 8, c ≠ 2) this is one `vdc_seek` and one `vdc_run` per row – the same effort as `VMF` with repetitions, without the BASIC parser per row.
 
-### 3.4 `VDR` (Rand)
+### 3.4 `VDR` (outline)
 
-In dieser Reihenfolge, jedes Pixel genau einmal:
+In this order, every pixel exactly once:
 
-1. obere Zeile: `span(x, x+w−1, y)`
-2. wenn h ≥ 2: untere Zeile `span(x, x+w−1, y+h−1)`
-3. wenn h ≥ 3: linke Spalte `vrun(x, y+1, y+h−2)`
-4. wenn h ≥ 3 und w ≥ 2: rechte Spalte `vrun(x+w−1, y+1, y+h−2)`
+1. top row: `span(x, x+w−1, y)`
+2. if h ≥ 2: bottom row `span(x, x+w−1, y+h−1)`
+3. if h ≥ 3: left column `vrun(x, y+1, y+h−2)`
+4. if h ≥ 3 and w ≥ 2: right column `vrun(x+w−1, y+1, y+h−2)`
 
-Pixelzahl für w, h ≥ 2: `2w + 2h − 4`.
+Pixel count for w, h ≥ 2: `2w + 2h − 4`.
 
-### 3.5 `VDL` (Linie, Bresenham mit Lauf-Ausgabe)
+### 3.5 `VDL` (line, Bresenham with run output)
 
-**Verbindliche Pixelmenge** (das Referenzmodell, 5, ist die Definition):
+**Binding pixel set** (the reference model, 5, is the definition):
 
 ```
 dx = |x2 − x1|, dy = |y2 − y1|
-wenn dx ≥ dy:                          # waagerecht dominiert
-    wenn x1 > x2: Endpunkte tauschen
-    sy = +1 wenn y2 > y1, sonst −1
+if dx ≥ dy:                            # horizontal dominates
+    if x1 > x2: swap endpoints
+    sy = +1 if y2 > y1, else −1
     e = 2·dy − dx; y = y1
-    für x = x1 … x2:
+    for x = x1 … x2:
         plot(x, y)
-        wenn e > 0: y += sy; e −= 2·dx
+        if e > 0: y += sy; e −= 2·dx
         e += 2·dy
-sonst:                                 # senkrecht dominiert, Rollen von x und y getauscht
-    wenn y1 > y2: Endpunkte tauschen
-    sx = +1 wenn x2 > x1, sonst −1
+else:                                  # vertical dominates, roles of x and y swapped
+    if y1 > y2: swap endpoints
+    sx = +1 if x2 > x1, else −1
     e = 2·dx − dy; x = x1
-    für y = y1 … y2:
+    for y = y1 … y2:
         plot(x, y)
-        wenn e > 0: x += sx; e −= 2·dy
+        if e > 0: x += sx; e −= 2·dy
         e += 2·dx
 ```
 
-Eigenschaften: `max(dx, dy) + 1` Pixel, 8-zusammenhängend, beide Endpunkte enthalten, jedes Pixel einmal. Durch das Tauschen hängt das Ergebnis nicht von der Reihenfolge der Endpunkte ab. Mit Koordinaten ≤ 16383 gilt |e| ≤ 32766 (16 Bit mit Vorzeichen).
+Properties: `max(dx, dy) + 1` pixels, 8-connected, both endpoints included, each pixel once. Because of the swapping the result does not depend on the order of the endpoints. With coordinates ≤ 16383, |e| ≤ 32766 (16 bits with sign).
 
-**Ausgabe in Läufen (Run-Slicing):** Der Assembler rechnet den Fehlerterm wie oben je Pixel (ein paar Zyklen CPU), schreibt aber nicht je Pixel, sondern je Lauf:
+**Output in runs (run slicing):** The assembler computes the error term as above per pixel (a few CPU cycles), but does not write per pixel, rather per run:
 
-- waagerecht dominiert: Pixel mit gleichem y bilden eine waagerechte Spanne → `span(x_start, x, y)` beim Zeilenwechsel und am Ende. dy = 0 ist eine einzige Spanne mit Block-fill-Mittelteil.
-- senkrecht dominiert: Pixel mit gleichem x bilden einen senkrechten Lauf → `vrun(x, y_start, y)`. dx = 0 ist ein einziger Lauf.
-- Die Zeilenadresse wird mit ±stride weitergezählt, nicht neu multipliziert.
+- horizontal dominates: pixels with the same y form a horizontal span → `span(x_start, x, y)` at the row change and at the end. dy = 0 is a single span with a block fill middle part.
+- vertical dominates: pixels with the same x form a vertical run → `vrun(x, y_start, y)`. dx = 0 is a single run.
+- The row address is advanced by ±stride, not multiplied anew.
 
-Ein echtes Run-Slicing mit Division (Lauflängen ohne Schritt je Pixel) ist als spätere Optimierung erlaubt, wenn die Tests (gleiche Pixelmenge) grün bleiben. Der Aufwand je Pixel für den Fehlerterm (≈ 15 Zyklen) ist klein gegen einen VDC-Zugriff.
+A true run slicing with division (run lengths without a step per pixel) is allowed as a later optimization if the tests (same pixel set) stay green. The effort per pixel for the error term (≈ 15 cycles) is small compared with a VDC access.
 
-## 4. Fehler
+## 4. Errors
 
-| Fall | Fehler |
+| Case | Error |
 |---|---|
-| Parameter fehlt, Komma fehlt, zu viele Parameter | 11 `?SYNTAX ERROR` |
-| `modus` ≠ 0/1, `stride` = 0 | 14 |
-| `c` außerhalb 1.3 für den aktuellen Modus | 14 |
-| `VDL`-Koordinate > 16383 | 14 |
-| `x + w > 65536` oder `y + h > 65536` | 14 |
+| parameter missing, comma missing, too many parameters | 11 `?SYNTAX ERROR` |
+| `mode` ≠ 0/1, `stride` = 0 | 14 |
+| `c` outside 1.3 for the current mode | 14 |
+| `VDL` coordinate > 16383 | 14 |
+| `x + w > 65536` or `y + h > 65536` | 14 |
 
-Prüfungen vor dem ersten VRAM-Zugriff; bei einem Fehler bleibt das VRAM unverändert. Reihenfolge bei mehreren Ursachen: 11.2.
+Checks happen before the first VRAM access; on an error the VRAM stays unchanged. Order with several causes: 11.2.
 
-## 5. Python-Referenzmodell `test/ref/vdcdraw.py`
+## 5. Python reference model `test/ref/vdcdraw.py`
 
-Nur Standardbibliothek. Die Pixelmenge und alle Byte-Ergebnisse sind hier definiert; Assembler und Doku richten sich danach.
+Standard library only. The pixel set and all byte results are defined here; assembler and docs follow it.
 
 ```python
-class VdcError(Exception):          # .code = BASIC-Fehlernummer (11, 14)
+class VdcError(Exception):          # .code = BASIC error number (11, 14)
 class Vdc:
-    def __init__(self, vram=None)     # vram: bytes(65536) oder None (Nullen)
-    ram: bytearray                    # 65536 Byte
-    mode, base, stride                # Zustand wie nach der Installation: 0, 0, 80
+    def __init__(self, vram=None)     # vram: bytes(65536) or None (zeros)
+    ram: bytearray                    # 65536 bytes
+    mode, base, stride                # state as after installation: 0, 0, 80
     def vdm(self, mode, base, stride)
     def vdl(self, x1, y1, x2, y2, c)
     def vdr(self, x, y, w, h, c)
     def vdb(self, x, y, w, h, c)
-def line_pixels(x1, y1, x2, y2) -> list[tuple[int, int]]   # 3.5, in Zeichenreihenfolge
+def line_pixels(x1, y1, x2, y2) -> list[tuple[int, int]]   # 3.5, in drawing order
 def rect_pixels(x, y, w, h) -> list[tuple[int, int]]       # 3.4
 ```
 
-- Alle Befehle prüfen wie 4 und werfen `VdcError` vor jeder Änderung.
-- Pixel setzen über eine einzige Funktion `_plot(x, y, c)` nach 1.2/1.3; Adressen modulo 65536.
-- Das Modell kennt T nicht: das Ergebnis hängt nicht von T ab.
+- All commands check as in 4 and raise `VdcError` before any change.
+- Set pixels via a single function `_plot(x, y, c)` per 1.2/1.3; addresses modulo 65536.
+- The model does not know T: the result does not depend on T.
 
-Selbsttests `test/ref/test_vdcdraw.py` (unittest, `python3 -m unittest discover -s test/ref`):
+Self-tests `test/ref/test_vdcdraw.py` (unittest, `python3 -m unittest discover -s test/ref`):
 
-| Prüfung | Inhalt |
+| Check | Content |
 |---|---|
-| kleine Bilder von Hand | je Modus: Punkt, waagerechte und senkrechte Linie, 45°, Linie (0,0)–(4,1) = Pixel (0,0),(1,0),(2,0),(3,1),(4,1) (nach 3.5 nachgerechnet), `VDR 1,1,3,3`, `VDB` mit ungeraden Rändern; erwartete Bytes als Literale im Test |
-| Linien | für alle Paare in einem 9 × 9-Gitter: Pixelzahl `max(dx,dy)+1`, 8-zusammenhängend, Endpunkte enthalten, keine Dopplung, vertauschte Endpunkte = gleiche Menge |
-| XOR | `vdl`/`vdr`/`vdb` mit c = 2 zweimal = Ausgangsbild (Zufallsbild) |
-| Rand | `len(rect_pixels)` = `2w+2h−4` für w, h ≥ 2; w = 1 bzw. h = 1 = eine Linie |
-| Fehler | alle Fälle aus 4 werfen mit dem richtigen Code und lassen `ram` unverändert |
-| Umlauf | `basis = $FFF0`: Pixel landen bei `$0000+` |
+| small images by hand | per mode: point, horizontal and vertical line, 45°, line (0,0)–(4,1) = pixels (0,0),(1,0),(2,0),(3,1),(4,1) (recomputed per 3.5), `VDR 1,1,3,3`, `VDB` with odd edges; expected bytes as literals in the test |
+| lines | for all pairs in a 9 × 9 grid: pixel count `max(dx,dy)+1`, 8-connected, endpoints included, no duplicates, swapped endpoints = same set |
+| XOR | `vdl`/`vdr`/`vdb` with c = 2 twice = original image (random image) |
+| outline | `len(rect_pixels)` = `2w+2h−4` for w, h ≥ 2; w = 1 or h = 1 = a line |
+| errors | all cases from 4 raise with the right code and leave `ram` unchanged |
+| wrap | `base = $FFF0`: pixels land at `$0000+` |
 
-## 6. Tests Assembler gegen Modell
+## 6. Tests assembler against model
 
 ### 6.1 Harness `test/draw/run_draw.py`
 
-Aufbau wie `test/rxv/run_rxv.py` (P2b, 7.1), gemeinsame Teile in `test/vramtest.py` (Grundmuster, Haltepunkte `$1BFE` Vorbereitung / `$1BFF` Prüfen, VRAM-Dump über `bank vdc`) und `test/vicemon.py` (Portregel P2a 6.4):
+Structured like `test/rxv/run_rxv.py` (P2b, 7.1), shared parts in `test/vramtest.py` (base pattern, breakpoints `$1BFE` prepare / `$1BFF` check, VRAM dump via `bank vdc`) and `test/vicemon.py` (port rule P2a 6.4):
 
-1. Fälle aus `test/draw/cases.py`; je Fall eine Folge von Befehlen (`VDM`, `VDL`, `VDR`, `VDB`) und ein T.
-2. Treiber `drawt.bas` (erzeugt): je Fall `SYS DEC("1BFE"):POKE DEC("1C04"),T`, die Befehle aus `DATA` (Befehlskennung + Parameter, ausgeführt über `ON K GOSUB`), `SYS DEC("1BFF")`.
-3. Vorbereitung: Grundmuster `random.Random(13)` ins VRAM; Prüfen: VRAM-Dump gegen `Vdc(grundmuster)` mit denselben Befehlen, byteweise über alle 64 KB. Abweichung: Fall, erste Adresse, Ist/Soll, Exitcode 1.
-4. Zyklen je Fall aus der Monitor-Stoppuhr zwischen Haltepunkten auf `draw_begin` (nach dem Parsen) und `draw_end`; Ausgabe `test/draw/cycles.md`, Vergleich mit 7 (Warnung, kein Fehler).
+1. Cases from `test/draw/cases.py`; per case a sequence of commands (`VDM`, `VDL`, `VDR`, `VDB`) and a T.
+2. Driver `drawt.bas` (generated): per case `SYS DEC("1BFE"):POKE DEC("1C04"),T`, the commands from `DATA` (command id + parameters, executed via `ON K GOSUB`), `SYS DEC("1BFF")`.
+3. Preparation: base pattern `random.Random(13)` into the VRAM; check: VRAM dump against `Vdc(base pattern)` with the same commands, bytewise over all 64 KB. Deviation: case, first address, actual/expected, exit code 1.
+4. Cycles per case from the monitor stopwatch between breakpoints on `draw_begin` (after parsing) and `draw_end`; output `test/draw/cycles.md`, comparison with 7 (warning, not an error).
 
-Der Treiber läuft interpretiert; zusätzlich einmal als Kompilat (P2a, 5.4), Ergebnis muss gleich sein.
+The driver runs interpreted; additionally once as a compiled program (P2a, 5.4), the result must be the same.
 
-### 6.2 Fälle
+### 6.2 Cases
 
-| Gruppe | Fälle |
+| Group | Cases |
 |---|---|
-| S1 Spannen chunky | `VDB x,y,w,1,c` für x = 0…3, w = 1…12, c ∈ {0, 7, 15}; Mittelteil m = T−1, T, T+1 für T ∈ {0, 2, 14, 255} (x gerade und ungerade); w = 160 (volle Zeile) |
-| S0 Spannen Bitmap | x = 0…7, w = 1…24, c ∈ {0, 1, 2}; m um T wie S1; w = 640 |
-| V senkrecht | `VDL x,y0,x,y1,c` beide Modi, x mit allen Bitlagen bzw. beiden Nibbles, Länge 1, 2, 100, Endpunkte in beiden Reihenfolgen |
-| L Linien | 32 Endpunkte auf einem Kreis (Radius 37) um (80, 50) bzw. (320, 100): alle Oktanten; dx = dy, dx = dy ± 1; dy = 1, dx = 300 (Bitmap, lange Spannen); dx = 1, dy = 150; Einzelpunkt; jede Linie auch mit vertauschten Endpunkten; c = 2 zweimal |
-| R `VDR` | w, h ∈ {0, 1, 2, 3, 10} alle Kombinationen, beide Modi; c = 2 (Ecken einmal) |
-| B `VDB` | ungerade/gerade Ränder; 70 × 96 chunky (Mittelteil per Fill); 640 × 200 Bitmap; w = 0, h = 0 |
-| G Geometrie | stride 160, 37, 255, 300; basis ungerade; basis `$FFC0` mit Umlauf; x jenseits der Zeile (x = 200 bei stride 80, chunky) |
-| Z Zufall | 200 Befehle aus `random.Random(11)`: Modus, Befehl, Lage, Größe (klein und groß), c, T |
+| S1 spans chunky | `VDB x,y,w,1,c` for x = 0…3, w = 1…12, c ∈ {0, 7, 15}; middle part m = T−1, T, T+1 for T ∈ {0, 2, 14, 255} (x even and odd); w = 160 (full row) |
+| S0 spans bitmap | x = 0…7, w = 1…24, c ∈ {0, 1, 2}; m around T as S1; w = 640 |
+| V vertical | `VDL x,y0,x,y1,c` both modes, x with all bit positions or both nibbles, length 1, 2, 100, endpoints in both orders |
+| L lines | 32 endpoints on a circle (radius 37) around (80, 50) or (320, 100): all octants; dx = dy, dx = dy ± 1; dy = 1, dx = 300 (bitmap, long spans); dx = 1, dy = 150; single point; every line also with swapped endpoints; c = 2 twice |
+| R `VDR` | w, h ∈ {0, 1, 2, 3, 10} all combinations, both modes; c = 2 (corners once) |
+| B `VDB` | odd/even edges; 70 × 96 chunky (middle part via fill); 640 × 200 bitmap; w = 0, h = 0 |
+| G geometry | stride 160, 37, 255, 300; odd base; base `$FFC0` with wrap; x beyond the row (x = 200 at stride 80, chunky) |
+| Z random | 200 commands from `random.Random(11)`: mode, command, position, size (small and large), c, T |
 
-Fehlerfälle laufen im normalen Lauf (`test/run.sh`, interpretiert und `-c`):
+Error cases run in the normal run (`test/run.sh`, interpreted and `-c`):
 
-| Datei | Inhalt |
+| File | Content |
 |---|---|
-| `draw-errors.bas` | alle Fälle aus 4 über `TRAP`, je Fall `ER` prüfen und per `VMD` an einer Stelle prüfen, dass nichts gezeichnet wurde |
-| `draw-basic.bas` | je Befehl ein kleiner Fall mit `VMD`-Prüfung (Rauchtest ohne Monitor) |
+| `draw-errors.bas` | all cases from 4 via `TRAP`, per case check `ER` and check via `VMD` at one location that nothing was drawn |
+| `draw-basic.bas` | one small case per command with `VMD` check (smoke test without monitor) |
 
-## 7. Zyklenziele (CPU-Zyklen bei 2 MHz, ohne BASIC-Parser)
+## 7. Cycle targets (CPU cycles at 2 MHz, without BASIC parser)
 
-| Pfad | Ziel | Bemerkung |
+| Path | Target | Remark |
 |---|---|---|
-| `draw_addr` (Multiplikation, Maske) | ≤ 250 | einmal je Befehl bzw. je `VDR`-Seite |
-| `pix_rmw` | ≤ 130 | 2 × `vdc_seek` + Lesen + Schreiben |
-| Spanne, fester Anteil mit zwei Rändern | ≤ 330 | dazu Mittelteil: 15 je Byte unter T, darüber Block fill |
-| senkrechter Lauf | ≤ 140 je Pixel | `pix_rmw` + 16-Bit-Addition |
-| schräge Linie (≈ 45°) | ≤ 160 je Pixel | Fehlerterm + `pix_rmw` |
-| `VDB` volle Bytes | ≤ 60 je Zeile + Mittelteil | `vdc_seek` + `vdc_run` |
-| `VDB 0,0,140,96,c` chunky | ≤ 96 × (60 + Fill von 70 Byte) | Viewport der Engine leeren |
+| `draw_addr` (multiplication, mask) | ≤ 250 | once per command or per `VDR` side |
+| `pix_rmw` | ≤ 130 | 2 × `vdc_seek` + read + write |
+| span, fixed part with two edges | ≤ 330 | plus middle part: 15 per byte below T, above that block fill |
+| vertical run | ≤ 140 per pixel | `pix_rmw` + 16-bit addition |
+| diagonal line (≈ 45°) | ≤ 160 per pixel | error term + `pix_rmw` |
+| `VDB` full bytes | ≤ 60 per row + middle part | `vdc_seek` + `vdc_run` |
+| `VDB 0,0,140,96,c` chunky | ≤ 96 × (60 + fill of 70 bytes) | clear the engine's viewport |
 
-Vergleich: ein Pixel in BASIC mit `VMA` + `VMO` kostet zwei Befehle mit Parser, etwa 10 000 Zyklen. Werte aus VICE sind wegen des groben VDC-Modells nur relativ zu lesen (P0, Abschnitt 2).
+Comparison: one pixel in BASIC with `VMA` + `VMO` costs two commands with parser, about 10 000 cycles. Values from VICE are only to be read relatively because of the coarse VDC model (P0, section 2).
 
-## 8. Größe
+## 8. Size
 
-Schätzung je Teil (Byte):
+Estimate per part (bytes):
 
-| Teil | Byte |
+| Part | Bytes |
 |---|---|
-| Parameter (5 Werte, gemeinsam für `VDL`/`VDR`/`VDB`) + Bereichsprüfungen | 90 |
-| `VDM` + Zustand | 50 |
-| `draw_addr` (Multiplikation, Masken) | 70 |
-| `pix_rmw` (beide Modi, setzen/löschen/XOR) | 70 |
-| `vdc_run`, `xor_run` + Puffer 64 | 60 + 64 |
-| Spanne (beide Modi) | 220 |
-| senkrechter Lauf | 60 |
-| `VDL` (beide Richtungen, 16-Bit-Fehlerterm, Lauf-Ausgabe) | 260 |
+| parameters (5 values, shared for `VDL`/`VDR`/`VDB`) + range checks | 90 |
+| `VDM` + state | 50 |
+| `draw_addr` (multiplication, masks) | 70 |
+| `pix_rmw` (both modes, set/clear/XOR) | 70 |
+| `vdc_run`, `xor_run` + buffer 64 | 60 + 64 |
+| span (both modes) | 220 |
+| vertical run | 60 |
+| `VDL` (both directions, 16-bit error term, run output) | 260 |
 | `VDR`, `VDB` | 140 |
-| **Summe P2c** | **≈ 1 100** |
+| **Sum P2c** | **≈ 1 100** |
 
-Gesamt v3: v2h 2 294 + Kopf 16 + Stubs/Tabellen ≈ 20 + `RXV`/VCL 8 ≈ 400 (P2b) + P2c ≈ 1 100 → **≈ 3,8 KB** von 9 216 Byte (`$1C00–$3FFF`). Reserve ≈ 5,4 KB. Die Gesamtprüfung aus P2a bricht beim Assemblieren ab, falls die Schätzung kippt.
+Total v3: v2h 2 294 + head 16 + stubs/tables ≈ 20 + `RXV`/VCL 8 ≈ 400 (P2b) + P2c ≈ 1 100 → **≈ 3.8 KB** of 9 216 bytes (`$1C00–$3FFF`). Reserve ≈ 5.4 KB. The overall check from P2a aborts the assembly if the estimate tips over.
 
-## 9. Doku
+## 9. Docs
 
-| Datei | Änderung |
+| File | Change |
 |---|---|
-| `docs/reference/commands.md` | neuer Abschnitt „Drawing“: `VDM`, `VDL`, `VDR`, `VDB` mit Pixel-/Nibble-Belegung (1.2, mit Begründung kurz), Farbe/XOR, kein Clipping, Grenzen, Fehler; Übersicht; Speicher (Zustand, Puffer) |
-| `BASIC V7.0 VDC.txt` | vier Tokens |
-| `README.md` | Befehlsliste, Tokentabelle, „Known limits“ (kein Clipping, kein XOR in Modus 1), Abschnitt „Unfinished parts“ streichen |
-| `test/README.md` | Referenzmodell, `run_draw.py` |
-| Guide | Kapitel dazu mit P8 (Bitmap-Kapitel 4/10 und chunky-Kapitel 5 können auf `VDL`/`VDB` verweisen) |
+| `docs/reference/commands.md` | new section "Drawing": `VDM`, `VDL`, `VDR`, `VDB` with pixel/nibble mapping (1.2, with brief rationale), color/XOR, no clipping, limits, errors; overview; memory (state, buffer) |
+| `BASIC V7.0 VDC.txt` | four tokens |
+| `README.md` | command list, token table, "Known limits" (no clipping, no XOR in mode 1), delete section "Unfinished parts" |
+| `test/README.md` | reference model, `run_draw.py` |
+| Guide | chapter on it with P8 (bitmap chapters 4/10 and chunky chapter 5 can refer to `VDL`/`VDB`) |
 
-## 10. Abnahme
+## 10. Acceptance
 
-| Prüfung | Erwartung |
+| Check | Expectation |
 |---|---|
-| `test/ref/test_vdcdraw.py` | grün |
-| `test/draw/run_draw.py` | alle Fälle 6.2 bytegleich mit dem Modell über 64 KB interpretiert, als Kompilat mit `--quick` (11.4) |
-| T-Unabhängigkeit | S0/S1/B mit allen T gleich |
-| `test/run.sh test/*.bas` und `-c` | alle PASS (inkl. `draw-errors.bas`, `draw-basic.bas`) |
-| Zyklen | `cycles.md` erzeugt, Abweichungen von 7 begründet |
-| Größe | P2c ≤ 1 400 Byte, Gesamtende ≤ `$3FFF` |
-| Doku | 9 vollständig |
+| `test/ref/test_vdcdraw.py` | green |
+| `test/draw/run_draw.py` | all cases 6.2 byte-identical with the model over 64 KB interpreted, as a compiled program with `--quick` (11.4) |
+| T independence | S0/S1/B the same with all T |
+| `test/run.sh test/*.bas` and `-c` | all PASS (incl. `draw-errors.bas`, `draw-basic.bas`) |
+| Cycles | `cycles.md` generated, deviations from 7 explained |
+| Size | P2c ≤ 1 400 bytes, overall end ≤ `$3FFF` |
+| Docs | 9 complete |
 
-## 11. Festlegungen aus dem Referenzmodell
+## 11. Decisions from the reference model
 
-Stand 2026-11-25, Review des Modells `test/ref/` (Opus). Verbindlich; Abschnitte 1–6 gelten, wo hier nichts anderes steht.
+As of 2026-11-25, review of the model `test/ref/` (Opus). Binding; sections 1–6 apply where nothing else is stated here.
 
-### 11.1 Pixelmenge und Ausgabe
+### 11.1 Pixel set and output
 
-- `line_pixels` ist der klassische Bresenham (Wikipedia `plotLineLow/High`): Schritt nur bei `e > 0`, bei Gleichstand (e = 0) bleibt die Nebenachse stehen. Nach dem Tauschen läuft die Hauptachse immer aufwärts; daher ist die Menge unabhängig von der Reihenfolge der Endpunkte. Die Lauf-Ausgabe (3.5) rechnet denselben Fehlerterm je Pixel und fasst nur zusammen, sie ergibt also dieselbe Menge. Ein späteres Run-Slicing mit Division muss diese Menge exakt treffen (Rundung bei Gleichstand beachten).
-- `rect_pixels`-Reihenfolge: oben, unten, links, rechts (wie 3.4). Die Reihenfolge ist für das Ergebnis ohne Bedeutung, weil jedes Pixel genau einmal vorkommt (geprüft per XOR-Bitzählung).
-- `VDB` im Modell zeilenweise, Pixel für Pixel; der Assembler darf jede Reihenfolge wählen.
-- Nibble-/Bit-Belegung wie 1.2 (Bit 7 bzw. High-Nibble = linkes Pixel), im Modell `_plot` und `pixel`.
+- `line_pixels` is the classic Bresenham (Wikipedia `plotLineLow/High`): step only at `e > 0`, on a tie (e = 0) the minor axis stays. After the swap the major axis always runs upward; therefore the set is independent of the order of the endpoints. The run output (3.5) computes the same error term per pixel and only summarizes, so it yields the same set. A later run slicing with division must hit this set exactly (mind the rounding on a tie).
+- `rect_pixels` order: top, bottom, left, right (as 3.4). The order is irrelevant for the result because every pixel occurs exactly once (checked via XOR bit counting).
+- `VDB` in the model row by row, pixel by pixel; the assembler may choose any order.
+- Nibble/bit mapping as 1.2 (bit 7 or high nibble = left pixel), in the model `_plot` and `pixel`.
 
-### 11.2 Parameter und Fehler
+### 11.2 Parameters and errors
 
-Die 6502-Fassung liest jeden Parameter mit der ROM-Routine `getadr` (`b_parse_uint16` `$8812` bzw. `b_parse_comma_uint16` `$880F`, Kern `$8815`). Nachgesehen in `basichi-318019-04.bin`: negatives Vorzeichen oder Exponent ≥ `$91` (Wert ≥ 65536) → `$7D28` (`?ILLEGAL QUANTITY`, 14); sonst `qint`, Nachkommastellen werden abgeschnitten. Fehlendes Komma: `b_skip_comma` `$795C` → `?SYNTAX ERROR` (11). Nummern 11 und 14 passen zu BASIC 7.0.
+The 6502 version reads every parameter with the ROM routine `getadr` (`b_parse_uint16` `$8812` or `b_parse_comma_uint16` `$880F`, core `$8815`). Looked up in `basichi-318019-04.bin`: negative sign or exponent ≥ `$91` (value ≥ 65536) → `$7D28` (`?ILLEGAL QUANTITY`, 14); otherwise `qint`, fractional digits are truncated. Missing comma: `b_skip_comma` `$795C` → `?SYNTAX ERROR` (11). Numbers 11 and 14 match BASIC 7.0.
 
-Daraus verbindlich (Modell `_args`, dann `_num`):
+Binding from this (model `_args`, then `_num`):
 
-1. Parameter **von links nach rechts**; je Parameter: fehlt → 11, außerhalb 0–65535 → 14. Der erste Fehler gewinnt.
-2. Erst wenn alle Parameter gelesen sind: befehlsspezifische Bereiche (`modus` 0/1, `stride` ≥ 1, `c` je Modus, `VDL` ≤ 16383, `x + w ≤ 65536`, `y + h ≤ 65536`) → 14.
-3. Beispiele: `VDL 70000,0` → 14; `VDL 20000,0` (Rest fehlt) → 11; `VDM 2,0` → 11.
-4. w, h 0–65535 (w = 65536 ist durch Schritt 1 schon 14). `basis` 0–65535, `stride` 1–65535.
-5. Nicht ganzzahlige Werte: ROM schneidet ab. Das Modell nimmt nur `int` und wirft sonst `TypeError` (Fehler im Test, kein BASIC-Fehler); Testfälle mit Brüchen gibt es nicht. Zeichenketten (`?TYPE MISMATCH`, 22) und zu viele Parameter (11) prüft nur `draw-errors.bas`, nicht das Modell.
-6. Ein fehlgeschlagenes `VDM` lässt den Zustand unverändert.
+1. Parameters **from left to right**; per parameter: missing → 11, outside 0–65535 → 14. The first error wins.
+2. Only when all parameters are read: command-specific ranges (`mode` 0/1, `stride` ≥ 1, `c` per mode, `VDL` ≤ 16383, `x + w ≤ 65536`, `y + h ≤ 65536`) → 14.
+3. Examples: `VDL 70000,0` → 14; `VDL 20000,0` (rest missing) → 11; `VDM 2,0` → 11.
+4. w, h 0–65535 (w = 65536 is already 14 through step 1). `base` 0–65535, `stride` 1–65535.
+5. Non-integer values: the ROM truncates. The model accepts only `int` and otherwise raises `TypeError` (error in the test, not a BASIC error); there are no test cases with fractions. Strings (`?TYPE MISMATCH`, 22) and too many parameters (11) are checked only by `draw-errors.bas`, not by the model.
+6. A failed `VDM` leaves the state unchanged.
 
-### 11.3 Testvektoren
+### 11.3 Test vectors
 
-- Generator `test/ref/gen_vectors.py`; Format `vdcdraw-vectors-1` (Kopf der Datei). Grundmuster `random.Random(13)`, je Fall `diff` (geänderte Läufe) und `sha1` über 64 KB. Die S1-Mittelteilbreiten und die Kreisrundung (`round`) sind wie im Generator festgelegt.
-- S0/S1 „mid“-Fälle haben **genau m** volle Mittelbytes (x = 0 ohne Ränder, x = 1 bzw. 3 mit beiden Rändern; im Test geprüft). Der erste Entwurf lag um 1 bzw. 2 daneben und hätte m = T − 1 nie getroffen.
-- Jeder Fall beginnt mit `VDM`; der Zustand hängt nie vom Vorfall ab.
-- Der Harness importiert `gen_vectors.build()` direkt (≈ 9 s) und vergleicht den VRAM-Dump mit dem Modell; die JSON-Datei (≈ 600 KB) wird nicht eingecheckt.
+- Generator `test/ref/gen_vectors.py`; format `vdcdraw-vectors-1` (head of the file). Base pattern `random.Random(13)`, per case `diff` (changed runs) and `sha1` over 64 KB. The S1 middle part widths and the circle rounding (`round`) are fixed as in the generator.
+- S0/S1 "mid" cases have **exactly m** full middle bytes (x = 0 without edges, x = 1 or 3 with both edges; checked in the test). The first draft was off by 1 or 2 and would never have hit m = T − 1.
+- Every case begins with `VDM`; the state never depends on the previous case.
+- The harness imports `gen_vectors.build()` directly (≈ 9 s) and compares the VRAM dump with the model; the JSON file (≈ 600 KB) is not checked in.
 
-### 11.4 Laufzeit in VICE (Empfehlung für 6.1)
+### 11.4 Runtime in VICE (recommendation for 6.1)
 
-1 520 Fälle (S0 645, Z 200, V 192, S1 166, L 157, R 103, B 48, G 12). Je Fall: Grundmuster laden (`load`, 64 KB, Bank `vdc`), Befehle interpretiert, `save` 64 KB, Vergleich in Python. Geschätzt 0,2–0,4 s je Fall im Warp → voller Satz 5–10 min je Durchgang, interpretiert plus Kompilat das Doppelte.
+1 520 cases (S0 645, Z 200, V 192, S1 166, L 157, R 103, B 48, G 12). Per case: load base pattern (`load`, 64 KB, bank `vdc`), commands interpreted, `save` 64 KB, comparison in Python. Estimated 0.2–0.4 s per case in warp → full set 5–10 min per pass, interpreted plus compiled double that.
 
-- `run_draw.py` unterstützt `--group` und `--quick`. `--quick` (`gen_vectors.is_quick`: S0-Raster nur x ∈ {0, 3, 7}, Z nur 000–049) hat 1 010 Fälle und ist der Standard für Entwicklungsläufe; der volle Satz für die Abnahme (10) und nur interpretiert, das Kompilat läuft mit `--quick`.
-- Alle Fälle in **einer** VICE-Sitzung (Haltepunkte `$1BFE`/`$1BFF`, ereignisgesteuert, Timeout nur als Wächter). Kein Neustart je Fall.
-- Vergleich über die vollen 64 KB bleibt Pflicht (findet Schreibzugriffe neben dem Ziel). `diff` dient nur der Fehlermeldung.
+- `run_draw.py` supports `--group` and `--quick`. `--quick` (`gen_vectors.is_quick`: S0 grid only x ∈ {0, 3, 7}, Z only 000–049) has 1 010 cases and is the default for development runs; the full set for acceptance (10) and only interpreted, the compiled program runs with `--quick`.
+- All cases in **one** VICE session (breakpoints `$1BFE`/`$1BFF`, event-driven, timeout only as a guard). No restart per case.
+- Comparison over the full 64 KB remains mandatory (finds writes next to the target). `diff` serves only for the error message.
 
 
-## 12. Befunde aus der Umsetzung (6502)
+## 12. Findings from the implementation (6502)
 
-Stand 2026-11-25, Umsetzung `src/vdcbasic.asm` (Zone `draw`), Harness `test/draw/run_draw.py`. Ergebnis: alle 1 520 Fälle bytegleich mit dem Modell über 64 KB (interpretiert), `-c --quick` 1 010/1 010, `test/run.sh` beide Modi grün.
+As of 2026-11-25, implementation `src/vdcbasic.asm` (zone `draw`), harness `test/draw/run_draw.py`. Result: all 1 520 cases byte-identical with the model over 64 KB (interpreted), `-c --quick` 1 010/1 010, `test/run.sh` both modes green.
 
-### 12.1 Größe (Abweichung von 8 und 10)
+### 12.1 Size (deviation from 8 and 10)
 
-Die Zeilen unten stammen vor den Optimierungen; deren Netto-Effekt steht in der letzten Zeile.
+The rows below date from before the optimizations; their net effect is in the last row.
 
-| Teil | Byte |
+| Part | Bytes |
 |---|---|
-| `VDM` + Fehlerausgänge | 53 |
-| `VDL` (Unterscheidung, Tausch, Fehlerterm, Lauf-Ausgabe, schnelle Pfade dy = 0 / dx = 0) | 626 |
+| `VDM` + error exits | 53 |
+| `VDL` (distinction, swap, error term, run output, fast paths dy = 0 / dx = 0) | 626 |
 | `VDR` | 182 |
 | `VDB` | 54 |
-| gemeinsam: Parameter, Prüfungen, `.setup`, x-Bereich, Spanne, `pix_rmw`, `run`/`xor_run`, Multiplikation, Masken | 938 |
-| Daten: Zustand `VDM` 5, Arbeitsbytes 38, `draw_buf` 64 | 107 |
-| Optimierungen 1–4 (netto), neue Daten `draw_vh`, `draw_majx`, `draw_xs` | +102 |
-| **Summe P2c** | **≈ 2 064** |
+| shared: parameters, checks, `.setup`, x range, span, `pix_rmw`, `run`/`xor_run`, multiplication, masks | 938 |
+| data: `VDM` state 5, working bytes 38, `draw_buf` 64 | 107 |
+| optimizations 1–4 (net), new data `draw_vh`, `draw_majx`, `draw_xs` | +102 |
+| **Sum P2c** | **≈ 2 064** |
 
-Die Optimierungen im Einzelnen: (1) `pix_rmw` setzt Reg 18 nur bei geändertem High-Byte (`draw_vh`), nach dem Lesen nur Reg 19 zurück (nicht bei Low-Byte $FF); Reg 19 immer zuletzt: +58 Byte. (2) gemeinsame Pixelschleife `.ppx` für y-major, senkrechte Läufe (auch VDR-Spalten) und x-major mit 2dy ≥ dx; Ende von `pix_rmw` self-modifying (rts/clc), ersetzt `.yl` und `.vcol`: +74 Byte. (3) rechter Rand ohne Reg-18-Prüfung (`.pix_rmw_19`): ±0 Byte. (4) Wrap-Pfad über `.seek` und `x+w−1` / `y+h−1` als Unterprogramm `.last`: −30 Byte.
+The optimizations in detail: (1) `pix_rmw` sets reg 18 only when the high byte has changed (`draw_vh`), after reading only resets reg 19 (not at low byte $FF); reg 19 always last: +58 bytes. (2) shared pixel loop `.ppx` for y-major, vertical runs (also VDR columns) and x-major with 2dy ≥ dx; end of `pix_rmw` self-modifying (rts/clc), replaces `.yl` and `.vcol`: +74 bytes. (3) right edge without reg 18 check (`.pix_rmw_19`): ±0 bytes. (4) wrap path via `.seek` and `x+w−1` / `y+h−1` as subroutine `.last`: −30 bytes.
 
-Ziel ≤ 1 400 verfehlt; vdcbasic3.bin 4 711 Byte, Ende v3 ≈ $2E67, 4 505 Byte Reserve bis $3FFF (Assertion bleibt). Gründe: jede VDC-Warteschleife steht inline (`+vdc_sta`/`+vdc_lda`/`+vdc_sty`, 8 Byte, 14-mal), `pix_rmw` setzt die Adresse zweimal inline (2 × 29 Byte) statt per Unterprogramm, und es gibt eigene schnelle Pfade (Linie dy = 0 als eine Spanne, dx = 0 als senkrechter Lauf, Lauf innerhalb eines Bytes ohne Spannenrechnung). Kürzer ginge vor allem auf Kosten von `pix_rmw` (Seek als Unterprogramm: −60 Byte, +24 Zyklen je Pixel); das wurde nicht gemacht. Nur der Wrap-Pfad nutzt inzwischen ein `.seek`-Unterprogramm (Optimierung 4).
+Target ≤ 1 400 missed; vdcbasic3.bin 4 711 bytes, end of v3 ≈ $2E67, 4 505 bytes reserve up to $3FFF (assertion stays). Reasons: every VDC wait loop is inline (`+vdc_sta`/`+vdc_lda`/`+vdc_sty`, 8 bytes, 14 times), `pix_rmw` sets the address twice inline (2 × 29 bytes) instead of via subroutine, and there are dedicated fast paths (line dy = 0 as one span, dx = 0 as vertical run, run within a byte without span calculation). Shorter would mainly be at the expense of `pix_rmw` (seek as subroutine: −60 bytes, +24 cycles per pixel); this was not done. Only the wrap path now uses a `.seek` subroutine (optimization 4).
 
-### 12.2 Zyklen (Abweichung von 7)
+### 12.2 Cycles (deviation from 7)
 
-Werte aus `test/draw/cycles.md` (VICE, 1 MHz, R6 = 0, vorläufig; maßgeblich):
+Values from `test/draw/cycles.md` (VICE, 1 MHz, R6 = 0, preliminary; authoritative):
 
-| Pfad | Ziel | gemessen | Begründung |
+| Path | Target | measured | Reason |
 |---|---|---|---|
-| senkrechter Lauf je Pixel | ≤ 140 | 144 | `pix_rmw` (2 Seeks, Lesen, Schreiben) plus 16-Bit-Addition stride und Zähler; gemeinsame Pixelschleife (Optimierung 2) und Reg-18-Prüfung (1) brachten −25 (169 → 144), Ziel knapp verfehlt |
-| schräge Linie 45° je Pixel | ≤ 160 | 196 | je Pixel ein Lauf: `pix_rmw` + Lauf-Ende + Zeilenwechsel ±stride + x-Schritt + 16-Bit-Fehlerterm; Optimierungen brachten −119 (315 → 196). Ziel ohne größeren Umbau (eigene Zeilenschleife für VDB) nicht erreichbar |
-| Spanne mit zwei Rändern je Zeile (`VDB`), Bitmap | ≤ 330 | 375 | zwei `pix_rmw`, dazu Zeilenadresse, Rand-/Mittelteil-Entscheidung; −37 (412 → 375). Ziel ohne größeren Umbau (eigene Zeilenschleife für VDB) nicht erreichbar |
-| Spanne mit zwei Rändern je Zeile (`VDB`), chunky | ≤ 330 | 446 | wie Bitmap; −32 (478 → 446). Ziel ohne größeren Umbau nicht erreichbar |
-| Mittelteil unter T je Byte | 15 | 15 | wie geplant |
-| `VDB` volle Bytes je Zeile | ≤ 60 + Mittelteil | 386 bei m = 10 (CPU, davon 150 Mittelteil), 309,5 bei m = 70 (Block fill) | Seek, zwei 16-Bit-Additionen für Anfang/Ende der Zeile, Entscheidungen in `span_draw`, erstes Byte + Zählerregister beim Block fill |
-| `VDR 3,y,10,10,1` gesamt | — | 4 255 (vorher 4 537) | zehn Zeilen mit je zwei Rändern und Spanne |
-| flache Linie, Fehlerterm je Pixel | ≈ 15 (3.5) | 74 | 16-Bit-Fehlerterm, 16-Bit-Zähler und x-Schritt (Bitindex, Übertrag in die Adresse) je Pixel |
+| vertical run per pixel | ≤ 140 | 144 | `pix_rmw` (2 seeks, read, write) plus 16-bit addition of stride and counter; shared pixel loop (optimization 2) and reg 18 check (1) brought −25 (169 → 144), target narrowly missed |
+| diagonal line 45° per pixel | ≤ 160 | 196 | one run per pixel: `pix_rmw` + run end + row change ±stride + x step + 16-bit error term; optimizations brought −119 (315 → 196). Target not reachable without a bigger rework (dedicated row loop for VDB) |
+| span with two edges per row (`VDB`), bitmap | ≤ 330 | 375 | two `pix_rmw`, plus row address, edge/middle part decision; −37 (412 → 375). Target not reachable without a bigger rework (dedicated row loop for VDB) |
+| span with two edges per row (`VDB`), chunky | ≤ 330 | 446 | like bitmap; −32 (478 → 446). Target not reachable without a bigger rework |
+| middle part below T per byte | 15 | 15 | as planned |
+| `VDB` full bytes per row | ≤ 60 + middle part | 386 at m = 10 (CPU, of which 150 middle part), 309.5 at m = 70 (block fill) | seek, two 16-bit additions for start/end of the row, decisions in `span_draw`, first byte + counter register for block fill |
+| `VDR 3,y,10,10,1` total | — | 4 255 (before 4 537) | ten rows with two edges and span each |
+| flat line, error term per pixel | ≈ 15 (3.5) | 74 | 16-bit error term, 16-bit counter and x step (bit index, carry into the address) per pixel |
 
-Offen, ohne die Pixelmenge zu ändern: Run-Slicing mit Division (3.5) für flache Linien, `.xadv`/`.endrun` in die Schleife ziehen (45°). Für 45° und Spanne ist ohne größeren Umbau (eigene Zeilenschleife für VDB) kein Ziel erreichbar. Zahlen von echter Hardware stehen aus.
+Open, without changing the pixel set: run slicing with division (3.5) for flat lines, pull `.xadv`/`.endrun` into the loop (45°). For 45° and span no target is reachable without a bigger rework (dedicated row loop for VDB). Numbers from real hardware are pending.
 
-### 12.3 Rechter Rand ohne Reg-18-Prüfung
+### 12.3 Right edge without reg 18 check
 
-3.1 liest den rechten Rand an der nach dem Mittelteil aktuellen Adresse. Die Umsetzung setzt davor nur noch Reg 19 neu (`.pix_rmw_19`, ohne Prüfung von Reg 18; ±0 Byte). Hardware-Annahme: Schreiben allein von Reg 19 setzt die Adresse korrekt, wenn Reg 18 stimmt. VICE liest immer direkt an der Adresse und würde einen Fehler hier nicht zeigen; auf echter Hardware zu prüfen. Der linke Rand läuft wie in 3.1: nach dem Zurückschreiben steht die Adresse auf dem ersten Mittelbyte.
+3.1 reads the right edge at the address that is current after the middle part. The implementation only resets reg 19 before it (`.pix_rmw_19`, without checking reg 18; ±0 bytes). Hardware assumption: writing reg 19 alone sets the address correctly if reg 18 is right. VICE always reads directly at the address and would not show an error here; to be checked on real hardware. The left edge runs as in 3.1: after writing back, the address is at the first middle byte.
 
-### 12.4 Zeropage, Parameter, Messpunkte
+### 12.4 Zero page, parameters, measurement points
 
-- `$0A`–`$14` erst nach dem Parsen: der Ausdrucksauswerter des ROM benutzt diesen Bereich (`$0D` VALTYP usw.); der Schleifenindex beim Lesen der fünf Parameter liegt daher im Datenteil (`draw_tmp`).
-- Zusätzlich zu 2: `$26`–`$2A` (Arbeitsbytes von `VCL`/`VMS`, während eines Zeichenbefehls frei) für `draw_d2`, `draw_d2m`, `draw_sp`, und `arg5` (`c`) nach der Prüfung als `draw_sa`. Steht in der Referenz unter „Memory used“.
-- Zu viele Parameter prüft der Befehl selbst (`chrgot` nach dem letzten Wert) vor dem ersten VRAM-Zugriff; BASIC würde den Syntaxfehler erst nach dem Zeichnen melden.
-- `draw_begin` (nach Parsen und Prüfen, vor der Geometrie) und `draw_end` sind globale Labels mit `RTS` für die Stoppuhr; jeder Zeichenbefehl ruft `draw_begin` einmal und endet mit `JMP draw_end` (12 bzw. 3 Zyklen).
-- Reg 24 Bit 7 wird nur beim ersten Mittelteil per Block fill gelöscht (`draw_r24`), wie 2 verlangt.
+- `$0A`–`$14` only after parsing: the ROM's expression evaluator uses this area (`$0D` VALTYP etc.); the loop index when reading the five parameters therefore lies in the data part (`draw_tmp`).
+- In addition to 2: `$26`–`$2A` (working bytes of `VCL`/`VMS`, free during a drawing command) for `draw_d2`, `draw_d2m`, `draw_sp`, and `arg5` (`c`) after the check as `draw_sa`. Stated in the reference under "Memory used".
+- Too many parameters is checked by the command itself (`chrgot` after the last value) before the first VRAM access; BASIC would report the syntax error only after drawing.
+- `draw_begin` (after parsing and checking, before the geometry) and `draw_end` are global labels with `RTS` for the stopwatch; every drawing command calls `draw_begin` once and ends with `JMP draw_end` (12 or 3 cycles).
+- Reg 24 bit 7 is cleared only at the first middle part via block fill (`draw_r24`), as 2 demands.
 
 ### 12.5 Tests
 
-- `draw-errors.bas` ist auf 13 Dateien `draw-errors*.bas` verteilt (je Datei ein Fehler, Blitz!-Grenze wie bei `rxv-errors*.bas`). Die Prüfung „nichts gezeichnet“ liest das VRAM nach dem Fehler direkt über `$D600`/`$D601`, weil im Kompilat danach keine Erweiterung mehr arbeitet. „Fehlgeschlagenes `VDM` lässt den Zustand unverändert“ (11.2, 6.) ist aus demselben Grund nicht im Kompilat prüfbar; der Code speichert den Zustand erst nach allen Prüfungen.
-- `test/vramtest.py` (gemeinsame Teile mit `run_rxv.py`, 6.1) gibt es noch nicht; `run_draw.py` ist eigenständig nach dem Muster von `run_rxv.py` gebaut. Die Befehle stehen nicht als `DATA` im Treiber (1 520 Fälle passen nicht in den BASIC-Speicher), sondern werden je Fall in den Parameterblock `$1B00` geschrieben und per `PEEK` gelesen; T und R6 ebenso.
-- Laufzeit: voller Satz interpretiert ≈ 30 s, `-c --quick` ähnlich (statt 5–10 min nach 11.4): `bload`/`bsave` über den Monitor sind schnell.
-- Zeitmessgruppe C (`--cycles`, 27 Pfade × 8 × R6 0/25) ist nicht Teil von `gen_vectors`, wird aber ebenfalls gegen das Modell geprüft.
-- Z64K-Fassung (`run_draw.py --emu z64k`, `test/z64k/zvt.s`, `test/README.md`): je Fall werden nur die vom Modell geänderten Bereiche (mit Rand 32 Byte, höchstens 16 Bereiche) per CRC geprüft und wiederhergestellt statt aller 64 KB; Schreibzugriffe daneben fängt die Vorprüfung des nächsten Falls und eine Gesamt-CRC an jedem 64. Fall, der schuldige Fall wird durch Wiederholung des Fensters mit Gesamt-CRC je Fall benannt. Voller Satz (1 520 Fälle): etwa 30 min (geschätzt aus 3,5 s je Fall und Start) → 3 min 25 s, grün. Der Vergleich über die vollen 64 KB je Fall bleibt in der VICE-Fassung (Pflicht oben).
-- P2b-Review: `vcl-rxv-twice.bas` (zwei Typ-8-Einträge hintereinander, beide mit Block fill) und `vcl-rxv-vms.bas` (Typ 12, 8, 12, 8: Wechsel von Reg 24 Bit 7) ergänzt, beide Modi grün.
+- `draw-errors.bas` is split into 13 files `draw-errors*.bas` (one error per file, Blitz! limit as with `rxv-errors*.bas`). The check "nothing drawn" reads the VRAM after the error directly via `$D600`/`$D601`, because in the compiled program no extension works afterwards. "A failed `VDM` leaves the state unchanged" (11.2, 6.) cannot be checked in the compiled program for the same reason; the code saves the state only after all checks.
+- `test/vramtest.py` (shared parts with `run_rxv.py`, 6.1) does not exist yet; `run_draw.py` is built standalone following the pattern of `run_rxv.py`. The commands are not in the driver as `DATA` (1 520 cases do not fit into BASIC memory), but are written per case into the parameter block `$1B00` and read via `PEEK`; T and R6 likewise.
+- Runtime: full set interpreted ≈ 30 s, `-c --quick` similar (instead of 5–10 min per 11.4): `bload`/`bsave` via the monitor are fast.
+- Timing group C (`--cycles`, 27 paths × 8 × R6 0/25) is not part of `gen_vectors`, but is also checked against the model.
+- Z64K version (`run_draw.py --emu z64k`, `test/z64k/zvt.s`, `test/README.md`): per case only the areas changed by the model (with a margin of 32 bytes, at most 16 areas) are checked by CRC and restored instead of all 64 KB; writes next to them are caught by the pre-check of the next case and a total CRC at every 64th case, the culprit case is named by repeating the window with a total CRC per case. Full set (1 520 cases): about 30 min (estimated from 3.5 s per case and start) → 3 min 25 s, green. The comparison over the full 64 KB per case remains in the VICE version (mandatory above).
+- P2b review: `vcl-rxv-twice.bas` (two type 8 entries in a row, both with block fill) and `vcl-rxv-vms.bas` (type 12, 8, 12, 8: change of reg 24 bit 7) added, both modes green.
