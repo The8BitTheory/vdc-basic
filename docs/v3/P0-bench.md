@@ -16,7 +16,7 @@ The benchmark measures the cost of the VDC accesses used by `RXV` (VRL decoder, 
 
 **Main result:** the threshold **T** = smallest run length from which block fill (until done) is faster than CPU streaming, for all lengths ≥ T. Also the cost parameters for the cycle model of `tools/vrl.py` (P1, section 8.3).
 
-**All results from VICE are provisional** (section 2). The benchmark program therefore also runs unchanged on real hardware (section 11); only those values count as final.
+**All results from VICE are provisional** (section 2). First real-hardware run: 2026-11-27, `test/bench/results/c128-20261127.{json,md}` (threshold T = 2 for R36 = 0, 6 for R36 = 5; the plausibility warnings (see the plausibility check below) appear because the expected values come from the VICE model). The benchmark program therefore also runs unchanged on real hardware (section 11); only those values count as final.
 
 ## 2. VDC timing in VICE 3.10 (from the source code)
 

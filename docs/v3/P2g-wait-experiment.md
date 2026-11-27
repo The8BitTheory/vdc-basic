@@ -145,7 +145,7 @@ Basis for the Crawl frame: P6g (`dungeonboringengine/docs/specs/P6g-vcl-analysis
 - **Appears safe (in Z64K):** omit the waits before R19, R33 and R18 in the source step and keep the two remaining ones. For VMF only the wait before R19 is dropped; R31 and R30 need theirs. This is a small change to `.vmc_src_set`/`.vmc_dst_step` (replace `+vdc_sta` → `sta vdc_data`, code gets shorter).
 - **More worthwhile** is a dedicated fast path for the most common form (VMC, length 1–255, without fill step) like `R-ACt` (≈ 40 bytes). For this, space has to be checked: `vdcbasic3.bin` ends at `$2EE9`.
 - **Not** usable: waits only every N-th row, so also unrolling alone for that. Reg 36 = 0 instead of 1 brings nothing in Z64K.
-- **To be checked on real hardware:** (1) Are the variants without B byte-identical there as well? How the real 8563 reacts to write accesses to R18/R19/R32/R33 while busy is not documented; Z64K is a model, VICE does not check it at all. (2) Do `A`, `C` and `AC/N` fail there in the same way, i.e. does the bandwidth picture of the display hold? (3) Free cycles per character row in chunky mode (duration table). (4) Data retention at R36 = 0/1 (P0 bench case 11).
+- **Real hardware (2026-11-27): answers to the four questions are in section 6.1.** Original questions: (1) Are the variants without B byte-identical there as well? How the real 8563 reacts to write accesses to R18/R19/R32/R33 while busy is not documented; Z64K is a model, VICE does not check it at all. (2) Do `A`, `C` and `AC/N` fail there in the same way, i.e. does the bandwidth picture of the display hold? (3) Free cycles per character row in chunky mode (duration table). (4) Data retention at R36 = 0/1 (P0 bench case 11).
 
 ## 5. Failure patterns (excerpts rows 0–15, L = 8/40)
 
@@ -164,6 +164,14 @@ Basis for the Crawl frame: P6g (`dungeonboringengine/docs/specs/P6g-vcl-analysis
 3. Evaluate: `test/bench/waits/waits.py eval RES0.prg … RES5.prg --json hw.json` (tables as above, `F` = Fletcher wrong).
 
 Evaluation of the hardware runs: if `p2f` (all waits) is wrong, it is not due to the waits. Then data retention has to be checked: the source `$8000–$93FF` lies outside the display, especially at R36 = 0/1. In Z64K the set `hw` ran through completely once (loader, 6 × `BSAVE`, rc 0). Result as above: all variants with A and C were byte-identical (1 080/1 080), `A` and `C` 0/108, `AC/2` 1/108, `AC/8` 0/108. Storage: `test/bench/waits/results/z64k-20261126/hw/` (`res0–5.prg`, `report.md`); this is the Z64K reference for the hardware comparison.
+
+### 6.1 Result on real hardware (C128, 64 KB VDC, 2026-11-27)
+
+Run with `test/hw/vdc-hw-tests.d81` (menu 2), machine in FAST mode; raw data and evaluation in `test/bench/waits/results/c128-20261127/` (`res0–5.prg`, `report.md`, `hw.json`).
+
+- **Answers to the questions of 4.5:** (1)/(2) Same pattern as Z64K: `A`, `C`, `AC/2` and `AC/8` are wrong in every repetition at every length and configuration; all other variants of the set (`p2f`, `full`, `AC`, `p2f-AC`, `S-AC`, `p2fS`, `p2fS-AC`, `R-ACt`, `RS-ACt`) are correct. The bandwidth picture of the display holds. (4) Data retention: `p2f` (all waits) is correct in all six configurations including R36 = 0, no decay seen in this run.
+- **Deviation:** `ACt` at 1 MHz, R36 = 0, L = 16 was wrong in 1 of 3 repetitions (`F1`); Z64K had none. Single event, to be repeated before `ACt`/`R-ACt` (K3) count as verified.
+- **Durations:** the median times to ready on hardware are in `report.md`; they were not compared line by line with Z64K.
 
 ## 7. Files, raw data
 

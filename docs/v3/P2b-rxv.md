@@ -133,7 +133,7 @@ Long run: via CPU exactly if L ≤ 255 and L < T. Runs ≥ 256 always go via blo
 
 The decoder does not track the destination address in software (saves about 20 cycles per token). On skip it reads the current address from reg 18/19. After reg 31 write accesses and after a block fill, the address after the last byte is there (VICE: `vdc-mem.c`, both paths update `regs[18/19]`).
 
-**To be verified on real hardware:** readability of reg 18/19 after block fill and after reg 31 writes. Test: `rxv-hw.bas` (7.4, vectors with skip directly after literal and directly after fill). Fallback if the hardware deviates: build switch `RXV_TRACK_DST = 1` – the decoder adds the length of each literal/run to `arg2` and on skip writes `arg2 + n` (16 bit) without reading; `$1C08` then comes from `arg2`. Both variants must pass the same tests.
+**Verified on real hardware (2026-11-27, `rxv-hw: all ok`):** readability of reg 18/19 after block fill and after reg 31 writes. Test: `rxv-hw.bas` (7.4, vectors with skip directly after literal and directly after fill). Fallback if the hardware deviates: build switch `RXV_TRACK_DST = 1` – the decoder adds the length of each literal/run to `arg2` and on skip writes `arg2 + n` (16 bit) without reading; `$1C08` then comes from `arg2`. Both variants must pass the same tests.
 
 ### 3.5 Limits and error behavior
 
@@ -336,8 +336,8 @@ State of implementation 2026-11-25 (VICE 3.10, `x128 -VDC64KB`).
 
 - **Step 0 (monitor bank `vdc`):** done. After `bank vdc`, `m`, `>`, `bload "datei" 0 0000` and `bsave "datei" 0 0000 ffff` read and write the VRAM (64 KB, without load address). The harness uses `bload`/`bsave` instead of `load`/`save` (no two-byte header). RAM 0 via `bank ram00`. The fallback via `VTR` is not needed.
 - **R28 at start:** `RGD(28)` = `$2F` (bit 4 = 0) even with `-VDC64KB`; the Kernal does not enable 64 KB addressing. The driver therefore sets `RGO 28,16` (after reading).
-- **3.3 Reg 30 = 0 (hardware):** open. Passed in VICE (`test/vdc-reg30-zero.bas`, group R `lrun256`…`lrun65536`). Run `vdc-reg30-zero.bas` on a C128.
-- **3.4 Reg 18/19 readable after fill and after reg 31 write (hardware):** open. Passed in VICE (`fill-skip`, `lit-skip`, all random vectors with skips). Run `test/rxv-hw.bas` on a C128. The fallback `RXV_TRACK_DST = 1` is implemented (+28 bytes) and passes the same tests (`run_rxv.py --bin … --sym …`, `VDCBASIC=… test/run.sh test/rxv*.bas test/vcl-rxv.bas`).
+- **3.3 Reg 30 = 0 (hardware):** **confirmed on a real C128 (2026-11-27, `test/hw/vdc-hw-tests.d81`, menu 3: `r30=0 fills 256 bytes: ok`).** Passed in VICE (`test/vdc-reg30-zero.bas`, group R `lrun256`…`lrun65536`). Run `vdc-reg30-zero.bas` on a C128.
+- **3.4 Reg 18/19 readable after fill and after reg 31 write (hardware):** **confirmed on a real C128 (2026-11-27, menu 4: `rxv-hw: all ok`); `RXV_TRACK_DST = 1` is not needed.** Passed in VICE (`fill-skip`, `lit-skip`, all random vectors with skips). Run `test/rxv-hw.bas` on a C128. The fallback `RXV_TRACK_DST = 1` is implemented (+28 bytes) and passes the same tests (`run_rxv.py --bin … --sym …`, `VDCBASIC=… test/run.sh test/rxv*.bas test/vcl-rxv.bas`).
 - **Result:** `run_rxv.py` 398/398 vectors byte-identical over the whole VRAM, `$1C06`/`$1C08` correct, interpreted and compiled (`-c`); group R identical for all eight T. Control with a deliberately wrong binary: deviations are reported.
 - **Size:** `RXV` 267 bytes (`rxv` up to `zzz`), VCL type 8 10 bytes, token and pointers 5 bytes: 282 bytes ≤ 400. Plus stub and table entries `VDL`/`VDR`/`VDB` 20 bytes, `VMS` type 3 (11) 34 bytes. Code ends at `$2654`.
 

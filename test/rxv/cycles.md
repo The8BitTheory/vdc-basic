@@ -9,7 +9,7 @@ CPU does not wait for the VDC. At 2 MHz the VDC is the limit in VICE.
 
 **Preliminary:** VICE models VDC access in a simplified way (busy time per reg 31 access in the visible
 area); the values are only good for comparing the paths with each other. Block fill rows include the
-wait for the end of the fill when reading R18/R19 at the end. Values on real hardware are pending.
+wait for the end of the fill when reading R18/R19 at the end. Values on real hardware are pending (cycle values; functional checks of RXV passed on hardware 2026-11-27).
 
 ## 1 MHz, without visible rows (R6 = 0), interpreted
 
