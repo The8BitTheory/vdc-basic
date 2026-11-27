@@ -82,12 +82,14 @@ SRC     = $FD           ; pointer into bank 0
 start:  lda     #$60            ; RTS at the two markers
         sta     MARK1
         sta     MARK2
+.ifndef SLOW                    ; (run.py --slow: cl65 --asm-define SLOW=1, 1 MHz)
         lda     $D011           ; FAST, as BASIC does it (VIC off)
         and     #$6F
         sta     $D011
         lda     $D030
         ora     #1
         sta     $D030
+.endif
         jsr     rowinit
         jsr     vdcinit
         jsr     tmpl

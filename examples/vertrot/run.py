@@ -26,10 +26,11 @@ import ref            # noqa: E402
 CLOCK = 985248
 
 
-def build(work, prog, compile_, runtime):
+def build(work, prog, compile_, runtime, slow=False):
     if prog.endswith('.s'):            # a machine code program (vtasm.s): no BOOT, no VDC-BASIC
         base = os.path.splitext(prog)[0]
-        subprocess.run(['cl65', '-t', 'none', '-C', base + '.cfg', '-o', os.path.join(work, 'boot.prg'), prog],
+        subprocess.run(['cl65', '-t', 'none', '-C', base + '.cfg'] + (['--asm-define', 'SLOW=1'] if slow else []) +
+                       ['-o', os.path.join(work, 'boot.prg'), prog],
                        check=True)
         if os.path.exists(base + '.o'):
             os.remove(base + '.o')
@@ -38,6 +39,13 @@ def build(work, prog, compile_, runtime):
                         os.path.basename(base)], check=True, stdout=subprocess.DEVNULL)
         return disk
     tok = os.path.join(ROOT, 'test', 'bastok.py')
+    if slow:                           # the listing without FAST (1 MHz)
+        src = os.path.join(work, 'slow.bas')
+        txt, n = re.subn(r'(?m)^30 FAST:', '30 ', open(prog).read())
+        if n != 1:
+            sys.exit('--slow: no "30 FAST:" in the listing')
+        open(src, 'w').write(txt)
+        prog = src
     boot = os.path.join(work, 'boot.bas')
     with open(os.path.join(ROOT, 'boot', 'boot.bas')) as f, open(boot, 'w') as o:
         o.write(re.sub(r'(?m)^50 .*$', '50 RUN"VERTROT"', f.read()))
@@ -88,17 +96,18 @@ def main():
     ap.add_argument('--prog', default=os.path.join(HERE, 'vertrot.bas'))
     ap.add_argument('--shots')
     ap.add_argument('--frames', type=int, default=0)
+    ap.add_argument('--slow', action='store_true', help='1 MHz: the listing without FAST, the machine code without $D030')
     ap.add_argument('-v', dest='verbose', action='store_true')
     ap.add_argument('--port', type=int)
     ap.add_argument('--timeout', type=int, default=3600)
     args = ap.parse_args()
     port = vm.choose_port(args.port)
-    mode = 'asm' if args.prog.endswith('.s') else 'blitz' if args.compile else 'interp'
+    mode = ('asm' if args.prog.endswith('.s') else 'blitz' if args.compile else 'interp') + ('-slow' if args.slow else '')
     name = os.path.splitext(os.path.basename(args.prog))[0]
     expect = [(dp, ref.page_pixels(vd.ram, dp)) for _, dp, vd in ref.frames(args.prog)]
     work = tempfile.mkdtemp(prefix='vertrot-')
     try:
-        disk = build(work, args.prog, args.compile, args.runtime)
+        disk = build(work, args.prog, args.compile, args.runtime, args.slow)
         if args.shots:
             os.makedirs(args.shots, exist_ok=True)
         vf = os.path.join(work, 'pic.bin')
