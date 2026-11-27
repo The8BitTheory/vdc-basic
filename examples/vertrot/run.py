@@ -57,10 +57,13 @@ def build(work, prog, compile_, runtime):
                     '-write', os.path.join(work, 'boot.prg'), 'boot',
                     '-write', os.path.join(ROOT, 'vdcbasic3.bin'), 'vdcbasic3',
                     '-write', prg, 'vertrot'], check=True, stdout=subprocess.DEVNULL)
-    for ml in ('vtclip', 'vtline'):        # machine code the listing loads
+    for ml in ('vtclip', 'vtline', 'vtview'):        # machine code the listing loads
         if ml.upper() in open(prog).read():
             out = os.path.join(work, ml + '.prg')
-            subprocess.run(['cl65', '-t', 'none', '-C', os.path.join(HERE, 'vtclip.cfg'), '-o', out,
+            cfg = os.path.join(HERE, ml + '.cfg')
+            if not os.path.exists(cfg):
+                cfg = os.path.join(HERE, 'vtclip.cfg')
+            subprocess.run(['cl65', '-t', 'none', '-C', cfg, '-o', out,
                             os.path.join(HERE, ml + '.s')], check=True)
             if os.path.exists(os.path.join(HERE, ml + '.o')):
                 os.remove(os.path.join(HERE, ml + '.o'))
