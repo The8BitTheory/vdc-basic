@@ -86,6 +86,7 @@ def main():
         if args.shots:
             os.makedirs(args.shots, exist_ok=True)
         vf = os.path.join(work, 'pic.bin')
+        flips = []    # (frame, attribute address shown) where the wrong page is on display
         res = []      # (drawing cycles, whole frame cycles or None, differing pixels)
 
         def script(m):
@@ -108,6 +109,11 @@ def main():
                 if pc == 7166:
                     if started:
                         res[-1][1] = int(re.search(r'Stopwatch:\s*(\d+)', m.cmd('stopwatch')).group(1))
+                        # the page drawn last must be on display now (R20/R21, set by SYN)
+                        regs = re.search(r'\n10:([ 0-9a-f]*)', m.cmd('io d600')).group(1).split()
+                        shown = int(regs[4], 16) << 8 | int(regs[5], 16)
+                        if shown != expect[len(res) - 1][0]:
+                            flips.append((len(res) - 1, shown))
                         if args.frames and len(res) >= args.frames:
                             m.s.sendall(b'quit\n')
                             return
@@ -151,6 +157,7 @@ def main():
                   f'{sum(fs) / len(fs) / CLOCK * 1000:.1f} ms = {len(fs) * CLOCK / sum(fs):.2f} fps')
             print(f'frames differing from ref.py: {len(bad)} {bad[:10]} '
                   f'({sum(res[i][2] for i in bad)} pixels); VICE exit {rc}')
+            print(f'frames shown from a wrong address: {len(flips)} {flips[:5]}')
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
