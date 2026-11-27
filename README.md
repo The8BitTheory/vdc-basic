@@ -124,7 +124,7 @@ Programs that use VDC-BASIC can be compiled with the Blitz BASIC compiler for th
 
 To the interpreter the two colons are empty statements, so the same source also runs uncompiled.
 
-With v3 the compiled program must use runtime image 2, which loads at `$4001`, above VDC-BASIC. The compiler chooses image 2 when the program contains a `GRAPHIC` statement; a line such as `63999 GRAPHIC 0` that is never executed is enough. Image 1 (load address `$1C01`) copies the program to `$1C00` and destroys VDC-BASIC. Load the compiled program through `BOOT` (`50 RUN"PROGRAM"`). Further findings (`docs/v3/P2a-relocate.md`, section 9):
+The compiler's default runtime is `improved` (needs `$FC00-$FEFF` as common RAM, MMU RCR=`$0C`, program below `$FC00`; machine code that uses bank-1 RAM there or changes `$D506` itself does not work with it); `--runtime fixed` avoids that. With v3 the compiled program must use runtime image 2, which loads at `$4001`, above VDC-BASIC. The compiler chooses image 2 when the program contains a `GRAPHIC` statement; a line such as `63999 GRAPHIC 0` that is never executed is enough. Image 1 (load address `$1C01`) copies the program to `$1C00` and destroys VDC-BASIC. Load the compiled program through `BOOT` (`50 RUN"PROGRAM"`). Further findings (`docs/v3/P2a-relocate.md`, section 9):
 
 - An assignment inside an extension reaches the compiled program: `::A=VMD(2000)` works, while `VMD`/`RGD` in a compiled expression are a syntax error for the compiler.
 - An error inside an extension is caught by `TRAP` with the right `ER`. After that, however, extensions no longer work correctly in the compiled program.

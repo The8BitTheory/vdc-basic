@@ -109,7 +109,7 @@ def build_disk(work, bin_, compile_, fast):
         sh([sys.executable, os.path.join(TEST, 'blitzprep.py'), os.path.join(work, 'drawt.bas'),
             os.path.join(work, 'tb.bas')])
         sh(tok + [os.path.join(work, 'tb.bas'), os.path.join(work, 'tb.prg')])
-        sh([node, blitzc, os.path.join(work, 'tb.prg'), os.path.join(work, 'blitz'), '--name', 'T'],
+        sh([node, blitzc, os.path.join(work, 'tb.prg'), os.path.join(work, 'blitz'), '--name', 'T', '--runtime', vm.blitz_runtime()],
            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         c = os.path.join(work, 'blitz', 'c.prg')
         if open(c, 'rb').read(2) != b'\x01\x40':

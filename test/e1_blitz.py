@@ -182,7 +182,7 @@ def main():
         tok(bas, src)
         cdir = os.path.join(OUT, name + '-blitz')
         shutil.rmtree(cdir, ignore_errors=True)
-        c = subprocess.run([node, blitzc, src, cdir, '--name', 'T'], capture_output=True, text=True)
+        c = subprocess.run([node, blitzc, src, cdir, '--name', 'T', '--runtime', vm.blitz_runtime()], capture_output=True, text=True)
         scr = open(os.path.join(cdir, 'screen.txt')).read() if os.path.exists(os.path.join(cdir, 'screen.txt')) else ''
         msg = ' | '.join(l.strip() for l in scr.splitlines() if l.strip() and re.search(r'error|\?|extension', l, re.I))
         cprg = os.path.join(cdir, 'c.prg')

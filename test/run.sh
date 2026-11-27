@@ -8,7 +8,7 @@
 # autostarts BOOT, which moves the BASIC text to $4001, installs VDC-BASIC and runs T.
 #   -c      compile T with Blitz! 128 (runtime image 2, $4001) first: test/blitzprep.py, then
 #           blitzc (BLITZC, default ~/git/blitz-compiler/blitz128/blitzc/js/cli.js; node from NODE,
-#           PATH or ~/.nvm). Without node or cli.js: "SKIP (blitzc not found)", exit code 3.
+#           PATH or ~/.nvm; runtime from BLITZ_RUNTIME = original|fixed|improved, default improved). Without node or cli.js: "SKIP (blitzc not found)", exit code 3.
 #   -l      book listing: the file has no test code of its own. It is wrapped so that
 #           reaching its end reports 0 and a BASIC error n reports 200 + n.
 #           A listing that waits for a key does so with  GETKEY K$ ; in the test the
@@ -89,7 +89,7 @@ for f in "$@"; do
         fi
         # source for the compiler at $1C01, like all references of blitzc
         python3 "$HERE/bastok.py" "$WORK/tb.bas" "$WORK/tb.prg" || exit 2
-        "$NODE" "$BLITZC" "$WORK/tb.prg" "$WORK/blitz" --name T >"$WORK/blitzc.txt" 2>&1
+        "$NODE" "$BLITZC" "$WORK/tb.prg" "$WORK/blitz" --name T --runtime "${BLITZ_RUNTIME:-improved}" >"$WORK/blitzc.txt" 2>&1
         crc=$?
         if [ $crc -ne 0 ] || [ ! -f "$WORK/blitz/c.prg" ]; then
             echo "FAIL  $f (blitzc exit $crc)"; grep -i 'error' "$WORK/blitz/screen.txt" "$WORK/blitzc.txt" 2>/dev/null | sed "s/^/      /"

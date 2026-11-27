@@ -165,6 +165,11 @@ def find_node():
     return c[-1] if c else None
 
 
+def blitz_runtime():
+    """Runtime for blitzc: env BLITZ_RUNTIME (original|fixed|improved), default improved (= blitzc default)."""
+    return os.environ.get('BLITZ_RUNTIME', 'improved')
+
+
 def find_blitzc():
     p = os.environ.get('BLITZC', os.path.expanduser('~/git/blitz-compiler/blitz128/blitzc/js/cli.js'))
     return p if os.path.exists(p) else None
