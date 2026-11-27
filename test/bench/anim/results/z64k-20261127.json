@@ -1,0 +1,756 @@
+{
+ "source": "z64k",
+ "date": "20261127",
+ "version": 1,
+ "K": 12,
+ "baseline_us": 11,
+ "provisional": true,
+ "cases": [
+  {
+   "name": "none",
+   "uc": "base",
+   "var": "none",
+   "info": {},
+   "ok": true,
+   "min": 0,
+   "med": 0,
+   "mean": 0.3333333333333333,
+   "max": 2
+  },
+  {
+   "name": "vcl-empty",
+   "uc": "base",
+   "var": "vcl",
+   "info": {},
+   "ok": true,
+   "min": 111,
+   "med": 111,
+   "mean": 111.0,
+   "max": 111
+  },
+  {
+   "name": "vcl-vmc1",
+   "uc": "base",
+   "var": "vcl",
+   "info": {},
+   "ok": true,
+   "min": 503,
+   "med": 517,
+   "mean": 538.1666666666666,
+   "max": 588
+  },
+  {
+   "name": "vcl-rxv0",
+   "uc": "base",
+   "var": "vcl",
+   "info": {},
+   "ok": true,
+   "min": 440,
+   "med": 464,
+   "mean": 467.1666666666667,
+   "max": 526
+  },
+  {
+   "name": "eyes/vmc",
+   "uc": "eyes",
+   "var": "vmc",
+   "info": {
+    "bytes": 32,
+    "rects": 1,
+    "rows": 4,
+    "stream": 46
+   },
+   "ok": true,
+   "min": 665,
+   "med": 1337,
+   "mean": 1205.3333333333333,
+   "max": 1590
+  },
+  {
+   "name": "eyes/cpu",
+   "uc": "eyes",
+   "var": "cpu",
+   "info": {
+    "bytes": 32,
+    "rects": 1,
+    "rows": 4,
+    "stream": 46
+   },
+   "ok": true,
+   "min": 657,
+   "med": 2856,
+   "mean": 2210.5833333333335,
+   "max": 2985
+  },
+  {
+   "name": "eyes/rxv14",
+   "uc": "eyes",
+   "var": "rxv14",
+   "info": {
+    "bytes": 32,
+    "rects": 1,
+    "rows": 4,
+    "stream": 46
+   },
+   "ok": true,
+   "min": 1148,
+   "med": 2968,
+   "mean": 2457.4166666666665,
+   "max": 3176
+  },
+  {
+   "name": "eyes/rxv2",
+   "uc": "eyes",
+   "var": "rxv2",
+   "info": {
+    "bytes": 32,
+    "rects": 1,
+    "rows": 4,
+    "stream": 46
+   },
+   "ok": true,
+   "min": 1149,
+   "med": 2991,
+   "mean": 2454.0833333333335,
+   "max": 3188
+  },
+  {
+   "name": "portrait3/vmc",
+   "uc": "portrait3",
+   "var": "vmc",
+   "info": {
+    "bytes": 58,
+    "rects": 3,
+    "rows": 11,
+    "stream": 98
+   },
+   "ok": true,
+   "min": 1717,
+   "med": 3348,
+   "mean": 2953.0,
+   "max": 3739
+  },
+  {
+   "name": "portrait3/cpu",
+   "uc": "portrait3",
+   "var": "cpu",
+   "info": {
+    "bytes": 58,
+    "rects": 3,
+    "rows": 11,
+    "stream": 98
+   },
+   "ok": true,
+   "min": 1384,
+   "med": 5444,
+   "mean": 4194.166666666667,
+   "max": 7326
+  },
+  {
+   "name": "portrait3/rxv14",
+   "uc": "portrait3",
+   "var": "rxv14",
+   "info": {
+    "bytes": 58,
+    "rects": 3,
+    "rows": 11,
+    "stream": 98
+   },
+   "ok": true,
+   "min": 2271,
+   "med": 5641,
+   "mean": 4740.833333333333,
+   "max": 7532
+  },
+  {
+   "name": "portrait3/rxv2",
+   "uc": "portrait3",
+   "var": "rxv2",
+   "info": {
+    "bytes": 58,
+    "rects": 3,
+    "rows": 11,
+    "stream": 98
+   },
+   "ok": true,
+   "min": 2322,
+   "med": 5858,
+   "mean": 4703.75,
+   "max": 6432
+  },
+  {
+   "name": "torch/vmc",
+   "uc": "torch",
+   "var": "vmc",
+   "info": {
+    "bytes": 48,
+    "rects": 1,
+    "rows": 12,
+    "stream": 94
+   },
+   "ok": true,
+   "min": 1086,
+   "med": 3292,
+   "mean": 2620.0,
+   "max": 3365
+  },
+  {
+   "name": "torch/cpu",
+   "uc": "torch",
+   "var": "cpu",
+   "info": {
+    "bytes": 48,
+    "rects": 1,
+    "rows": 12,
+    "stream": 94
+   },
+   "ok": true,
+   "min": 1214,
+   "med": 4570,
+   "mean": 3480.8333333333335,
+   "max": 4764
+  },
+  {
+   "name": "torch/rxv14",
+   "uc": "torch",
+   "var": "rxv14",
+   "info": {
+    "bytes": 48,
+    "rects": 1,
+    "rows": 12,
+    "stream": 94
+   },
+   "ok": true,
+   "min": 2233,
+   "med": 4827,
+   "mean": 4122.083333333333,
+   "max": 5196
+  },
+  {
+   "name": "torch/rxv2",
+   "uc": "torch",
+   "var": "rxv2",
+   "info": {
+    "bytes": 48,
+    "rects": 1,
+    "rows": 12,
+    "stream": 94
+   },
+   "ok": true,
+   "min": 2234,
+   "med": 4883,
+   "mean": 4129.416666666667,
+   "max": 5169
+  },
+  {
+   "name": "gate2/vmc",
+   "uc": "gate2",
+   "var": "vmc",
+   "info": {
+    "bytes": 840,
+    "rects": 1,
+    "rows": 42,
+    "stream": 685
+   },
+   "ok": true,
+   "min": 2685,
+   "med": 9890,
+   "mean": 8718.166666666666,
+   "max": 15883
+  },
+  {
+   "name": "gate2/cpu",
+   "uc": "gate2",
+   "var": "cpu",
+   "info": {
+    "bytes": 840,
+    "rects": 1,
+    "rows": 42,
+    "stream": 685
+   },
+   "ok": true,
+   "min": 25995,
+   "med": 32794,
+   "mean": 32027.416666666668,
+   "max": 37634
+  },
+  {
+   "name": "gate2/rxv14",
+   "uc": "gate2",
+   "var": "rxv14",
+   "info": {
+    "bytes": 840,
+    "rects": 1,
+    "rows": 42,
+    "stream": 685
+   },
+   "ok": true,
+   "min": 25585,
+   "med": 32029,
+   "mean": 30999.416666666668,
+   "max": 36605
+  },
+  {
+   "name": "gate2/rxv2",
+   "uc": "gate2",
+   "var": "rxv2",
+   "info": {
+    "bytes": 840,
+    "rects": 1,
+    "rows": 42,
+    "stream": 685
+   },
+   "ok": true,
+   "min": 24661,
+   "med": 28509,
+   "mean": 28565.25,
+   "max": 32785
+  },
+  {
+   "name": "gate1/vmc",
+   "uc": "gate1",
+   "var": "vmc",
+   "info": {
+    "bytes": 1920,
+    "rects": 1,
+    "rows": 64,
+    "stream": 1457
+   },
+   "ok": true,
+   "min": 4302,
+   "med": 12805,
+   "mean": 11860.666666666666,
+   "max": 18024
+  },
+  {
+   "name": "gate1/cpu",
+   "uc": "gate1",
+   "var": "cpu",
+   "info": {
+    "bytes": 1920,
+    "rects": 1,
+    "rows": 64,
+    "stream": 1457
+   },
+   "ok": true,
+   "min": 64928,
+   "med": 72164,
+   "mean": 71498.5,
+   "max": 77490
+  },
+  {
+   "name": "gate1/rxv14",
+   "uc": "gate1",
+   "var": "rxv14",
+   "info": {
+    "bytes": 1920,
+    "rects": 1,
+    "rows": 64,
+    "stream": 1457
+   },
+   "ok": true,
+   "min": 62642,
+   "med": 68350,
+   "mean": 67437.75,
+   "max": 72467
+  },
+  {
+   "name": "gate1/rxv2",
+   "uc": "gate1",
+   "var": "rxv2",
+   "info": {
+    "bytes": 1920,
+    "rects": 1,
+    "rows": 64,
+    "stream": 1457
+   },
+   "ok": true,
+   "min": 58602,
+   "med": 60389,
+   "mean": 60211.5,
+   "max": 63329
+  },
+  {
+   "name": "wings1/vmc",
+   "uc": "wings1",
+   "var": "vmc",
+   "info": {
+    "bytes": 1920,
+    "rects": 3,
+    "rows": 192
+   },
+   "ok": true,
+   "min": 34188,
+   "med": 38160,
+   "mean": 37744.25,
+   "max": 39538
+  },
+  {
+   "name": "wings1/cpu",
+   "uc": "wings1",
+   "var": "cpu",
+   "info": {
+    "bytes": 1920,
+    "rects": 3,
+    "rows": 192
+   },
+   "ok": true,
+   "min": 81575,
+   "med": 84846,
+   "mean": 84205.16666666667,
+   "max": 86416
+  },
+  {
+   "name": "view/vmc",
+   "uc": "view",
+   "var": "vmc",
+   "info": {
+    "bytes": 6720,
+    "rects": 1,
+    "rows": 96,
+    "stream": 4463
+   },
+   "ok": true,
+   "min": 26492,
+   "med": 34267,
+   "mean": 33854.75,
+   "max": 39507
+  },
+  {
+   "name": "view/rxv14",
+   "uc": "view",
+   "var": "rxv14",
+   "info": {
+    "bytes": 6720,
+    "rects": 1,
+    "rows": 96,
+    "stream": 4463
+   },
+   "ok": true,
+   "min": 205919,
+   "med": 212701,
+   "mean": 211753.91666666666,
+   "max": 217403
+  },
+  {
+   "name": "view/rxv2",
+   "uc": "view",
+   "var": "rxv2",
+   "info": {
+    "bytes": 6720,
+    "rects": 1,
+    "rows": 96,
+    "stream": 4463
+   },
+   "ok": true,
+   "min": 182679,
+   "med": 186950,
+   "mean": 186117.75,
+   "max": 188535
+  },
+  {
+   "name": "grille1/vms",
+   "uc": "grille1",
+   "var": "vms",
+   "info": {
+    "bytes": 688,
+    "rects": 456,
+    "rows": 64,
+    "stream": 2281,
+    "vms_list": 1827
+   },
+   "ok": true,
+   "min": 81354,
+   "med": 84229,
+   "mean": 83646.25,
+   "max": 85372
+  },
+  {
+   "name": "grille1/cpu",
+   "uc": "grille1",
+   "var": "cpu",
+   "info": {
+    "bytes": 688,
+    "rects": 456,
+    "rows": 64,
+    "stream": 2281,
+    "vms_list": 1827
+   },
+   "ok": true,
+   "min": 67216,
+   "med": 71436,
+   "mean": 71258.5,
+   "max": 75299
+  },
+  {
+   "name": "grille1/rxv14",
+   "uc": "grille1",
+   "var": "rxv14",
+   "info": {
+    "bytes": 688,
+    "rects": 456,
+    "rows": 64,
+    "stream": 2281,
+    "vms_list": 1827
+   },
+   "ok": true,
+   "min": 66582,
+   "med": 68178,
+   "mean": 67995.16666666667,
+   "max": 69223
+  },
+  {
+   "name": "grille1/rxv2",
+   "uc": "grille1",
+   "var": "rxv2",
+   "info": {
+    "bytes": 688,
+    "rects": 456,
+    "rows": 64,
+    "stream": 2281,
+    "vms_list": 1827
+   },
+   "ok": true,
+   "min": 66346,
+   "med": 68226,
+   "mean": 68097.58333333333,
+   "max": 69455
+  },
+  {
+   "name": "goblin/vms",
+   "uc": "goblin",
+   "var": "vms",
+   "info": {
+    "bytes": 534,
+    "rects": 40,
+    "rows": 40,
+    "stream": 690,
+    "vms_list": 163
+   },
+   "ok": true,
+   "min": 6056,
+   "med": 11217,
+   "mean": 10751.5,
+   "max": 15330
+  },
+  {
+   "name": "goblin/cpu",
+   "uc": "goblin",
+   "var": "cpu",
+   "info": {
+    "bytes": 534,
+    "rects": 40,
+    "rows": 40,
+    "stream": 690,
+    "vms_list": 163
+   },
+   "ok": true,
+   "min": 22159,
+   "med": 26626,
+   "mean": 25496.5,
+   "max": 29341
+  },
+  {
+   "name": "goblin/rxv14",
+   "uc": "goblin",
+   "var": "rxv14",
+   "info": {
+    "bytes": 534,
+    "rects": 40,
+    "rows": 40,
+    "stream": 690,
+    "vms_list": 163
+   },
+   "ok": true,
+   "min": 22713,
+   "med": 26749,
+   "mean": 25875.75,
+   "max": 29137
+  },
+  {
+   "name": "goblin/rxv2",
+   "uc": "goblin",
+   "var": "rxv2",
+   "info": {
+    "bytes": 534,
+    "rects": 40,
+    "rows": 40,
+    "stream": 690,
+    "vms_list": 163
+   },
+   "ok": true,
+   "min": 22613,
+   "med": 26552,
+   "mean": 25811.416666666668,
+   "max": 28863
+  },
+  {
+   "name": "r2gate/vcl",
+   "uc": "r2gate",
+   "var": "layers",
+   "info": {
+    "bytes": 3654,
+    "rects": 3
+   },
+   "ok": true,
+   "min": 22376,
+   "med": 31999,
+   "mean": 31165.25,
+   "max": 39316
+  },
+  {
+   "name": "r2grille/vcl",
+   "uc": "r2grille",
+   "var": "layers",
+   "info": {
+    "rects": 3
+   },
+   "ok": true,
+   "min": 66898,
+   "med": 74158,
+   "mean": 73763.33333333333,
+   "max": 80242
+  },
+  {
+   "name": "pl-gate1/rtv",
+   "uc": "pl-gate1",
+   "var": "rtv",
+   "info": {
+    "bytes": 1920,
+    "stream": 1214
+   },
+   "ok": true,
+   "min": 81313,
+   "med": 82537,
+   "mean": 83333.08333333333,
+   "max": 87222
+  },
+  {
+   "name": "pl-gate1/cpu",
+   "uc": "pl-gate1",
+   "var": "cpu",
+   "info": {
+    "bytes": 1920,
+    "stream": 1214
+   },
+   "ok": true,
+   "min": 62936,
+   "med": 68268,
+   "mean": 68345.16666666667,
+   "max": 74427
+  },
+  {
+   "name": "pl-gate1/rxv14",
+   "uc": "pl-gate1",
+   "var": "rxv14",
+   "info": {
+    "bytes": 1920,
+    "stream": 1214
+   },
+   "ok": true,
+   "min": 44622,
+   "med": 52047,
+   "mean": 51188.0,
+   "max": 57210
+  },
+  {
+   "name": "pl-gate1/rxv2",
+   "uc": "pl-gate1",
+   "var": "rxv2",
+   "info": {
+    "bytes": 1920,
+    "stream": 1214
+   },
+   "ok": true,
+   "min": 43685,
+   "med": 49920,
+   "mean": 49209.416666666664,
+   "max": 55455
+  },
+  {
+   "name": "pl-behind/rxv2",
+   "uc": "pl-behind",
+   "var": "rxv2",
+   "info": {
+    "bytes": 1920,
+    "stream": 678
+   },
+   "ok": true,
+   "min": 24389,
+   "med": 30884,
+   "mean": 30196.666666666668,
+   "max": 36309
+  },
+  {
+   "name": "pl-goblin/rtv",
+   "uc": "pl-goblin",
+   "var": "rtv",
+   "info": {
+    "bytes": 528,
+    "stream": 530
+   },
+   "ok": true,
+   "min": 20647,
+   "med": 22865,
+   "mean": 23679.666666666668,
+   "max": 28349
+  },
+  {
+   "name": "pl-goblin/rxv2",
+   "uc": "pl-goblin",
+   "var": "rxv2",
+   "info": {
+    "bytes": 528,
+    "stream": 530
+   },
+   "ok": true,
+   "min": 13871,
+   "med": 16514,
+   "mean": 16537.416666666668,
+   "max": 19581
+  },
+  {
+   "name": "pl-portrait/rtv",
+   "uc": "pl-portrait",
+   "var": "rtv",
+   "info": {
+    "bytes": 50,
+    "stream": 52
+   },
+   "ok": true,
+   "min": 1020,
+   "med": 3470,
+   "mean": 3149.9166666666665,
+   "max": 5783
+  },
+  {
+   "name": "pl-portrait/rxv2",
+   "uc": "pl-portrait",
+   "var": "rxv2",
+   "info": {
+    "bytes": 50,
+    "stream": 52
+   },
+   "ok": true,
+   "min": 1028,
+   "med": 3810,
+   "mean": 3075.3333333333335,
+   "max": 5388
+  },
+  {
+   "name": "pl-bg/rxv2",
+   "uc": "pl-bg",
+   "var": "rxv2",
+   "info": {
+    "bytes": 9600,
+    "stream": 5940
+   },
+   "ok": true,
+   "min": 234656,
+   "med": 238962,
+   "mean": 238415.08333333334,
+   "max": 241857
+  }
+ ],
+ "failed": []
+}
