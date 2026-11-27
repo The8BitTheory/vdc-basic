@@ -191,7 +191,7 @@ OFF;fe24;
 FAST;fe25;
 SLOW;fe26;
 
-#VDC Basic Tokens
+#VDC Basic Tokens (vdcbasic v3)
 RGW;fe27;
 RGA;fe28;
 RGO;fe29;
@@ -209,6 +209,17 @@ SYN;fe34;
 DISP;fe35;
 ATTR;fe36;
 CRSR;fe37;
+VCS;fe38;
+VMP;fe39;
+#fe3a is a placeholder (zzz) in vdcbasic, do not use
+VCL;fe3b;
+VMS;fe3c;
+VMB;fe3d;
+VDL;fe3e;
+VDR;fe3f;
+VDB;fe40;
+RXV;fe41;
+VDM;fe42;
 RGD;ce0b;
 VMD;ce0c;
 
