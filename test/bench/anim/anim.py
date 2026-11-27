@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Animation benchmark: what does one animation step cost on the VDC, by source and method.
 
-Background: dungeonboringengine/docs/vma-animation-notes.md. Spec: test/bench/anim/README.md.
+Background: dungeonboringengine/docs/vda-animation-notes.md. Spec: test/bench/anim/README.md.
 
 Measures, on a C128 with 64 KB VDC (and in VICE/Z64K for checking), in the chunky mode of Crawl
 (2 MHz, R36 = 0, VIC blanked, interrupts off, CIA 2 timer in microseconds):

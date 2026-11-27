@@ -1,6 +1,6 @@
 # anim: cost of an animation step on the VDC
 
-Measurement program for the animation plan of the engine (`dungeonboringengine/docs/vma-animation-notes.md`).
+Measurement program for the animation plan of the engine (`dungeonboringengine/docs/vda-animation-notes.md`).
 Question: what does one animation step cost when the source lies in VRAM (block copy) or in CPU RAM
 (CPU copy or `RXV` stream), and how long does loading the assets into VRAM take?
 
