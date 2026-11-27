@@ -59,7 +59,10 @@ def build(work, prog, compile_, runtime):
                     '-write', prg, 'vertrot'], check=True, stdout=subprocess.DEVNULL)
     if 'VTCLIP' in open(prog).read():
         subprocess.run(['cl65', '-t', 'none', '-C', os.path.join(HERE, 'vtclip.cfg'), '-o',
-                        os.path.join(work, 'vtclip.prg'), os.path.join(HERE, 'vtclip.s')], check=True)
+                        os.path.join(work, 'vtclip.prg'), os.path.join(HERE, 'vtclip.s')],
+                       check=True)
+        if os.path.exists(os.path.join(HERE, 'vtclip.o')):
+            os.remove(os.path.join(HERE, 'vtclip.o'))
         subprocess.run(['c1541', disk, '-write', os.path.join(work, 'vtclip.prg'), 'vtclip'],
                        check=True, stdout=subprocess.DEVNULL)
     return disk
