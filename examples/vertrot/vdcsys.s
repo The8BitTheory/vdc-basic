@@ -5,22 +5,34 @@
 ;
 ;   SYS 4864  install: USR vector ($1218 JMP) to the parameter routine; checks VDC-BASIC v3
 ;   SYS 4867  VDL x1,y1,x2,y2,c         the line code of VDC-BASIC (VDL after its parsing, VDLCORE)
-;   SYS 4870  VMC source,target,count   block copy (the three parameter form)
-;   SYS 4873  VMF vaddr,byte,count      block fill (the three parameter form)
+;   SYS 4870  VMC source,target,count[,reps,targetstep[,sourcestep]]   VDC-BASIC's VMC after its parsing (VMCEXEC)
+;   SYS 4873  VMF vaddr,byte,count[,reps,step]                           VDC-BASIC's VMF after its parsing (VMFEXEC)
 ;   SYS 4876  SYN reg,byte[,reg,byte]...  wait for the start of the vertical blank, write with SEI
 ;   SYS 4879  RGW reg,byte    4882 RGO reg,byte    4885 RGA reg,byte
 ;   SYS 4888  RGD(reg): the value into RES (PEEK(RES)), RGD(255) by VDC-BASIC's capacity check
-;   SYS 4891  RST flags       4894 DISP vaddr      4897 ATTR vaddr
+;   SYS 4891  RST flags (VDC-BASIC's RST)      4894 DISP vaddr      4897 ATTR vaddr
 ;   SYS 4900  VDM mode,base,stride      VDC-BASIC's VDM after its parsing (VDMCORE)
 ;   SYS 4903  VDR x,y,w,h,c   as four VDL (the same pixels in one colour; no c = 2)
-; VDLCORE, VDMCORE and CAPACITY are addresses inside vdcbasic3.bin (acme -l of src/vdcbasic.asm);
-; SYS 4864 checks the version byte and the code there and stops with a BRK if they differ.
+;   4906      RES: the result of RGD and VMD
+;   SYS 4907  VMW vaddr,byte  4910 VCL addr (VDC-BASIC's VCL after its parsing)
+;   SYS 4913  VMD(vaddr): the VRAM byte into RES
+; VDLCORE, VDMCORE, VMCEXEC, VMFEXEC, REMEMBER, VCLCORE, RSTCORE and CAPACITY are addresses inside vdcbasic3.bin
+; (acme -l of src/vdcbasic.asm); SYS 4864 checks the version byte and the code there and stops with a BRK if they
+; differ. VDCSYS must stay below $1700 (dbe-crypt keeps its VIEW buffer there); the build checks it.
 ;
 ; Build: cl65 -t none -C vdcsys.cfg -o vdcsys.prg vdcsys.s
 
 VDLCORE = $25DE         ; vdl + 3: ldx #6 (check of the coordinates), then the line
 VDMCORE = $25AC         ; vdm + 6: lda arg1+1
 CAPACITY = $1D94        ; vdc_check_capacity: ldy #$ff ... A = 0 (16 KiB) or not 0 (64 KiB)
+VMCEXEC = $1F71         ; vmc_execute: arg1-arg6 set, $FF00 = $3E (REMEMBER); ldx #24
+VMFEXEC = $1F44         ; vmf_execute: the same, Y = low byte of the count; tya
+REMEMBER = $1F14        ; remember_mem_conf: saves $FF00 for the exit of VMC/VMF, $FF00 = $3E; ldx $ff00
+VCLCORE = $2476         ; vcl + 3: A/Y = list address; sty arg_address
+RSTCORE = $2305         ; rst + 3: X = flags; jsr io_on
+ARG4    = $89           ; repetitions (byte; 0 = 256)
+ARG5    = $8B           ; target step
+ARG6    = $8D           ; source step
 VERSION = $1C03
 ARG1    = $83
 VDCREG  = $D600
@@ -48,7 +60,10 @@ FACSGN  = $68
         jmp     c_attr          ; 4897
         jmp     c_vdm           ; 4900
         jmp     c_vdr           ; 4903
-res:    .byte   0               ; 4906: result of RGD
+res:    .byte   0               ; 4906: result of RGD and VMD
+        jmp     c_vmw           ; 4907
+        jmp     c_vcl           ; 4910
+        jmp     c_vmd           ; 4913
 
 install:
         lda     VERSION         ; VDC-BASIC v3 with the expected code?
@@ -69,6 +84,17 @@ install:
         lda     CAPACITY
         cmp     #$A0
         bne     @bad
+        ldx     #ncheck-1       ; the other entries
+:       lda     ckaddr_lo,x
+        sta     $FB
+        lda     ckaddr_hi,x
+        sta     $FC
+        ldy     #0
+        lda     ($FB),y
+        cmp     ckbyte,x
+        bne     @bad
+        dex
+        bpl     :-
         lda     #$4C            ; JMP param
         sta     USRVEC
         lda     #<param
@@ -82,7 +108,7 @@ install:
 
 ; param (USR): FAC -> whole number (16 bit) onto the stack; FAC stays as it is
 param:  ldx     np
-        cpx     #32
+        cpx     #16
         bcs     @full
         lda     #0
         sta     plo,x
@@ -119,7 +145,10 @@ param:  ldx     np
         sbc     phi,x
         sta     phi,x
 @done:  inc     np
-@full:  rts
+@full:  lda     #0              ; VALTYP/INTFLG: the result is a number (after DEC("..") in the argument
+        sta     $0F             ; Blitz! would see a string type and stop with TYPE MISMATCH)
+        sta     $10
+        rts
 @big:   cmp     #25             ; 2^16..2^24: the bytes below the top one
         bcs     @done
         sta     cnt
@@ -277,69 +306,30 @@ vdlc:   lda     rc
         sta     ARG1+9
         jmp     VDLCORE
 
-c_vmc:  lda     #3              ; source, target, count
-        jsr     args
-        ldx     #24             ; block copy
-        jsr     rreg
-        ora     #$80
-        jsr     wreg
-        lda     ARG1+3          ; target
-        ldx     #18
-        jsr     wreg
-        lda     ARG1+2
-        ldx     #19
-        jsr     wreg
-        lda     ARG1+1          ; source
-        ldx     #32
-        jsr     wreg
-        lda     ARG1
-        ldx     #33
-        jsr     wreg
-        jmp     blocks
-
-c_vmf:  lda     #3              ; vaddr, byte, count
-        jsr     args
-        lda     ARG1+4          ; count 0: nothing here
-        ora     ARG1+5
-        beq     @rts
-        ldx     #24             ; block fill
-        jsr     rreg
-        and     #$7F
-        jsr     wreg
-        lda     ARG1+1
-        ldx     #18
-        jsr     wreg
-        lda     ARG1
-        ldx     #19
-        jsr     wreg
-        lda     ARG1+2          ; the first byte, the rest by block fill
-        ldx     #31
-        jsr     wreg
-        lda     ARG1+4
-        bne     :+
-        dec     ARG1+5
-:       dec     ARG1+4
-        jmp     blocks
-@rts:   rts
-; blocks: ARG1+4/5 bytes with R30 writes of up to 255
-blocks: lda     ARG1+5
-        bne     @255
-        lda     ARG1+4
-        beq     @rts
-        cmp     #255
-        bcc     :+
-@255:   lda     #255
-:       sta     cnt
-        ldx     #30
-        jsr     wreg
-        lda     ARG1+4
-        sec
-        sbc     cnt
-        sta     ARG1+4
-        bcs     blocks
-        dec     ARG1+5
-        jmp     blocks
-@rts:   rts
+c_vmc:  ldx     #<VMCEXEC       ; VMC with 3, 5 or 6 parameters, VMF with 3 or 5: VDC-BASIC's code
+        ldy     #>VMCEXEC
+        bne     vmcf
+c_vmf:  ldx     #<VMFEXEC
+        ldy     #>VMFEXEC
+vmcf:   stx     vmcj+1
+        sty     vmcj+2
+        lda     np
+        sta     npar
+        jsr     args            ; all of them to arg1.., stack empty, I/O on
+        lda     npar
+        cmp     #6
+        bcs     @go
+        lda     #0              ; no source step: 0
+        sta     ARG6
+        sta     ARG6+1
+        lda     npar
+        cmp     #5
+        bcs     @go
+        lda     #1              ; no repetitions: 1
+        sta     ARG4
+@go:    jsr     REMEMBER
+        ldy     ARG1+4          ; Y = low byte of the count (VMF)
+vmcj:   jmp     VMCEXEC         ; MODIFIED
 
 c_syn:  lda     np              ; the pairs, then wait and write with interrupts off
         sta     npairs
@@ -395,30 +385,10 @@ c_rgd:  lda     #1
         sta     res
         rts
 
-c_rst:  lda     #1              ; bit 0: registers as the Kernal sets them, bit 1: character set
+c_rst:  lda     #1              ; VDC-BASIC's RST with X = flags
         jsr     args
-        lsr     ARG1
-        bcc     @f
-        lda     #37
-        sta     VDCREG
-        lda     #$FF
-        sta     VDCDAT
-        ldx     #0
-        jsr     SETVDC
-        lda     VDCREG
-        and     #7
-        beq     :+
-        ldx     #$3B
-        jsr     SETVDC
-:       bit     $0A03
-        bpl     @f
-        ldx     #$3E
-        jsr     @pal
-@f:     lsr     ARG1
-        bcc     :+
-        jmp     FONT
-:       rts
-@pal:   jmp     ($E192)
+        ldx     ARG1
+        jmp     RSTCORE
 
 c_disp: ldx     #12
         bne     ad
@@ -433,6 +403,30 @@ ad:     stx     cnt
         lda     ARG1
         jmp     wreg
 
+c_vmw:  lda     #2              ; VMW vaddr,byte
+        jsr     args
+        jsr     seta
+        lda     ARG1+2
+        ldx     #31
+        jmp     wreg
+c_vcl:  lda     #1              ; VCL addr: VDC-BASIC's VCL with A/Y = address
+        jsr     args
+        lda     ARG1+1
+        ldy     ARG1
+        jmp     VCLCORE
+c_vmd:  lda     #1              ; VMD(vaddr) -> RES
+        jsr     args
+        jsr     seta
+        ldx     #31
+        jsr     rreg
+        sta     res
+        rts
+seta:   lda     ARG1+1          ; R18/R19 = ARG1
+        ldx     #18
+        jsr     wreg
+        lda     ARG1
+        inx
+
 wreg:   stx     VDCREG
 :       bit     VDCREG
         bpl     :-
@@ -445,6 +439,7 @@ rreg:   stx     VDCREG
         rts
 
 np:     .byte   0               ; number of parameters on the stack
+npar:   .byte   0
 npairs: .byte   0
 cnt:    .byte   0
 rx:     .word   0               ; VDR: x y w h c, x2 y2
@@ -454,5 +449,11 @@ rh:     .word   0
 rc:     .word   0
 rx2:    .word   0
 ry2:    .word   0
-plo:    .res    32              ; the parameter stack
-phi:    .res    32
+plo:    .res    16              ; the parameter stack
+phi:    .res    16
+ckaddr_lo: .byte <VMCEXEC, <VMFEXEC, <REMEMBER, <VCLCORE, <RSTCORE
+ckaddr_hi: .byte >VMCEXEC, >VMFEXEC, >REMEMBER, >VCLCORE, >RSTCORE
+ckbyte: .byte   $A2, $98, $AE, $84, $20
+ncheck  = ckbyte - ckaddr_hi
+vdcsys_end:
+.assert vdcsys_end <= $1700, error, "VDCSYS must end below $1700"
