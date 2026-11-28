@@ -26,7 +26,7 @@ import ref            # noqa: E402
 CLOCK = 985248
 
 
-def build(work, prog, compile_, runtime, slow=False):
+def build(work, prog, compile_, runtime, slow=False, vdcsys=False):
     if prog.endswith('.s'):            # a machine code program (vtasm.s): no BOOT, no VDC-BASIC
         base = os.path.splitext(prog)[0]
         subprocess.run(['cl65', '-t', 'none', '-C', base + '.cfg'] + (['--asm-define', 'SLOW=1'] if slow else []) +
@@ -58,13 +58,15 @@ def build(work, prog, compile_, runtime, slow=False):
         src = os.path.join(work, 'src.prg')
         subprocess.run(['python3', tok, prog, src], check=True)
         out = os.path.join(work, 'blitz')
-        r = subprocess.run([node, blitzc, src, out, '--name', 'VERTROT', '--runtime', runtime],
+        r = subprocess.run([node, blitzc, src, out, '--name', 'VERTROT', '--runtime', runtime] + (['--vdcsys'] if vdcsys else []),
                            capture_output=True, text=True)
         scr = os.path.join(out, 'screen.txt')
         txt = open(scr).read() if os.path.exists(scr) else ''
         if r.returncode or 'errors: 0' not in txt:
             sys.exit(f'blitzc failed ({r.returncode}):\n{r.stdout}{r.stderr}{txt}')
         shutil.copy(os.path.join(out, 'c.prg'), prg)
+        if vdcsys:                      # blitzc converted the VDC-BASIC commands (vdc2sys.js): VDCSYS goes on the disk
+            shutil.copy(os.path.join(out, 'vdcsys.prg'), os.path.join(work, 'vdcsys-blitzc.prg'))
         if open(prg, 'rb').read(2) != b'\x01\x40':
             sys.exit('compiled program does not load at $4001 (runtime image 2)')
         print(f'compiled: {os.path.getsize(prg)} bytes, runtime {runtime}', flush=True)
@@ -75,6 +77,9 @@ def build(work, prog, compile_, runtime, slow=False):
                     '-write', os.path.join(work, 'boot.prg'), 'boot',
                     '-write', os.path.join(ROOT, 'vdcbasic3.bin'), 'vdcbasic3',
                     '-write', prg, 'vertrot'], check=True, stdout=subprocess.DEVNULL)
+    if vdcsys:
+        subprocess.run(['c1541', disk, '-write', os.path.join(work, 'vdcsys-blitzc.prg'), 'vdcsys'], check=True,
+                       stdout=subprocess.DEVNULL)
     for ml in ('vtclip', 'vtline', 'vtview', 'vdcsys'):        # machine code the listing loads
         if ml.upper() in open(prog).read():
             out = os.path.join(work, ml + '.prg')
@@ -96,18 +101,20 @@ def main():
     ap.add_argument('--prog', default=os.path.join(HERE, 'vertrot.bas'))
     ap.add_argument('--shots')
     ap.add_argument('--frames', type=int, default=0)
+    ap.add_argument('--vdcsys', action='store_true', help='with -c: blitzc --vdcsys (VDC-BASIC commands as USR/SYS)')
     ap.add_argument('--slow', action='store_true', help='1 MHz: the listing without FAST, the machine code without $D030')
     ap.add_argument('-v', dest='verbose', action='store_true')
     ap.add_argument('--port', type=int)
     ap.add_argument('--timeout', type=int, default=3600)
     args = ap.parse_args()
     port = vm.choose_port(args.port)
-    mode = ('asm' if args.prog.endswith('.s') else 'blitz' if args.compile else 'interp') + ('-slow' if args.slow else '')
+    mode = ('asm' if args.prog.endswith('.s') else 'blitz' if args.compile else 'interp') + ('-vdcsys' if args.vdcsys else '') + \
+        ('-slow' if args.slow else '')
     name = os.path.splitext(os.path.basename(args.prog))[0]
     expect = [(dp, ref.page_pixels(vd.ram, dp)) for _, dp, vd in ref.frames(args.prog)]
     work = tempfile.mkdtemp(prefix='vertrot-')
     try:
-        disk = build(work, args.prog, args.compile, args.runtime, args.slow)
+        disk = build(work, args.prog, args.compile, args.runtime, args.slow, args.vdcsys)
         if args.shots:
             os.makedirs(args.shots, exist_ok=True)
         vf = os.path.join(work, 'pic.bin')
