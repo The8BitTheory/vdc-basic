@@ -75,7 +75,7 @@ def build(work, prog, compile_, runtime, slow=False):
                     '-write', os.path.join(work, 'boot.prg'), 'boot',
                     '-write', os.path.join(ROOT, 'vdcbasic3.bin'), 'vdcbasic3',
                     '-write', prg, 'vertrot'], check=True, stdout=subprocess.DEVNULL)
-    for ml in ('vtclip', 'vtline', 'vtview'):        # machine code the listing loads
+    for ml in ('vtclip', 'vtline', 'vtview', 'vdcsys'):        # machine code the listing loads
         if ml.upper() in open(prog).read():
             out = os.path.join(work, ml + '.prg')
             cfg = os.path.join(HERE, ml + '.cfg')
